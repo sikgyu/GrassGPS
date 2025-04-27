@@ -10,36 +10,94 @@ export interface Place {
   lon: number;
   visited: boolean;
   photos: string[];
+  geocodeFailed?: boolean;
 }
 
 interface Store {
   places: Place[];
-  stops: string[];
-  loadCsv: (text: string, replace: boolean) => Promise<void>;
-  addAddresses: (text: string) => Promise<void>;
+  loadCsv: (text: string) => Promise<void>;
   toggleVisited: (id: string) => void;
   addPhoto: (id: string, url: string) => void;
   toggleStop: (id: string) => void;
   clearStops: () => void;
 }
 
-const GEOCODE = "https://nominatim.openstreetmap.org/search";
+const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 
 export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
       places: [],
-      stops: [],
 
-      async loadCsv(text, replace) {
+      async loadCsv(text) {
         const rows = Papa.parse<string[]>(text, { skipEmptyLines: true }).data;
-        const addrs = rows.map((r) => r[0]).filter(Boolean);
-        await importAddrs(addrs, replace, set, get);
-      },
+        const addrs = rows.map((r) => r[0]?.trim()).filter(Boolean);
+        const newPlaces = await Promise.all(
+          addrs.map(async (line) => {
+            /* lat,lon,title 형식인지 확인 */
+            const parts = line.split(",");
+            const n1 = parseFloat(parts[0]);
+            const n2 = parseFloat(parts[1]);
+            if (!isNaN(n1) && !isNaN(n2) && parts.length >= 3) {
+              return {
+                id: crypto.randomUUID(),
+                addr: parts.slice(2).join(",").trim(),
+                lat: n1,
+                lon: n2,
+                visited: false,
+                photos: [],
+              } as Place;
+            }
 
-      async addAddresses(text) {
-        const addrs = text.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-        await importAddrs(addrs, false, set, get);
+            /* 아니면 지오코딩 */
+            const cacheKey = "geo:" + line;
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) return JSON.parse(cached);
+
+            try {
+              const { data } = await axios.get(NOMINATIM, {
+                params: { q: line, format: "json", limit: 1 },
+                headers: {
+                  "User-Agent": "GrassGPS/0.1 (demo@example.com)",
+                },
+              });
+              if (!data[0]) {
+                console.warn("❗️ geocode fail:", line);
+                return {
+                  id: crypto.randomUUID(),
+                  addr: line,
+                  lat: 0,
+                  lon: 0,
+                  visited: false,
+                  photos: [],
+                  geocodeFailed: true
+                } as Place;
+              }
+              const p: Place = {
+                id: crypto.randomUUID(),
+                addr: line,
+                lat: +data[0].lat,
+                lon: +data[0].lon,
+                visited: false,
+                photos: [],
+              };
+              localStorage.setItem(cacheKey, JSON.stringify(p));
+              return p;
+            } catch (e) {
+              console.error("geo error", e);
+              return {
+                id: crypto.randomUUID(),
+                addr: line,
+                lat: 0,
+                lon: 0,
+                visited: false,
+                photos: [],
+                geocodeFailed: true
+              } as Place;
+            }
+          })
+        );
+        set({ places: newPlaces.filter(Boolean) as Place[] });
       },
 
       toggleVisited: (id) =>
@@ -58,64 +116,25 @@ export const usePlaces = create<Store>()(
 
       toggleStop: (id) =>
         set({
-          stops: get().stops.includes(id)
-            ? get().stops.filter((s) => s !== id)
-            : [...get().stops, id],
+          places: get().places.map((p) =>
+            p.id === id ? { ...p, visited: !p.visited } : p
+          ),
         }),
 
-      clearStops: () => set({ stops: [] }),
+      clearStops: () =>
+        set({
+          places: get().places.map((p) => ({ ...p, visited: false })),
+        }),
     }),
     { name: "grassgps" }
   )
 );
 
-// CSV 자동 로드
+/* 앱 시작 시 CSV 자동 로드 */
 (async () => {
-  try {
-    const res = await fetch("/addresses.csv");
-    if (res.ok) {
-      const text = await res.text();
-      await usePlaces.getState().loadCsv(text, true);
-    }
-  } catch (e) {
-    console.error(e);
+  const res = await fetch("/addresses.csv");
+  if (res.ok) {
+    const text = await res.text();
+    await usePlaces.getState().loadCsv(text);
   }
 })();
-
-async function importAddrs(
-  addrs: string[],
-  replace: boolean,
-  set: any,
-  get: any
-) {
-  const existing = get().places;
-
-  const newPlaces = await Promise.all(
-    addrs.map(async (addr) => {
-      const cache = localStorage.getItem("geo:" + addr);
-      if (cache) return JSON.parse(cache);
-
-      try {
-        const { data } = await axios.get(GEOCODE, {
-          params: { q: addr, format: "json", limit: 1 },
-        });
-        if (!data[0]) return null;
-        const obj: Place = {
-          id: crypto.randomUUID(),
-          addr,
-          lat: +data[0].lat,
-          lon: +data[0].lon,
-          visited: false,
-          photos: [],
-        };
-        localStorage.setItem("geo:" + addr, JSON.stringify(obj));
-        return obj;
-      } catch {
-        return null;
-      }
-    })
-  );
-
-  const cleaned = newPlaces.filter(Boolean) as Place[];
-  set({ places: replace ? cleaned : [...existing, ...cleaned] });
-}
