@@ -116,8 +116,8 @@ export default function PlaceDrawer() {
 
       {/* 썸네일 */}
       <div className="grid grid-cols-2 gap-1 mb-4">
-        {(place.photos ?? []).map((src, i) => (
-          <img key={i} src={src} className="object-cover w-full h-24 rounded" />
+        {(place.photos ?? []).map((src) => (
+          <img key={src} src={src} className="object-cover w-full h-24 rounded" />
         ))}
       </div>
 

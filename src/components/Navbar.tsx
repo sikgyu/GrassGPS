@@ -6,13 +6,21 @@ export default function Navbar() {
   const [mode, setMode] = useState<null | "import" | "add">(null);
   const [text, setText] = useState("");
   const loadCsv = usePlaces((s) => s.loadCsv);
-  const addAddr = usePlaces((s) => s.addAddresses);
+  const addAddresses = usePlaces((s) => s.addAddresses);
 
   const save = async () => {
-    if (mode === "import") await loadCsv(text, true);
-    if (mode === "add") await addAddr(text);
-    setText("");
-    setMode(null);
+    try {
+      if (mode === "import") {
+        await loadCsv(text);
+      } else if (mode === "add") {
+        await addAddresses(text);
+      }
+      setText("");
+      setMode(null);
+    } catch (error) {
+      console.error('Failed to save addresses:', error);
+      alert('주소를 처리하는 중 오류가 발생했습니다.');
+    }
   };
 
   return (
@@ -44,7 +52,11 @@ export default function Navbar() {
             placeholder="주소를 한 줄에 하나씩 입력"
             className="border w-full h-40 p-1 text-sm mb-2"
           />
-          <button onClick={save} className="btn w-full">
+          <button 
+            onClick={save} 
+            className="btn w-full"
+            disabled={!text.trim()}
+          >
             Save
           </button>
         </Modal>

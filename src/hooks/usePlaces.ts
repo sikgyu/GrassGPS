@@ -2,6 +2,7 @@ import Papa from "papaparse";
 import axios from "axios";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { RouteOptions } from "../types";
 
 export interface Place {
   id: string;
@@ -15,19 +16,78 @@ export interface Place {
 
 interface Store {
   places: Place[];
+  routeOptions: RouteOptions;
+  setRouteOptions: (options: Partial<RouteOptions>) => void;
   loadCsv: (text: string) => Promise<void>;
+  addAddresses: (text: string) => Promise<void>;
   toggleVisited: (id: string) => void;
   addPhoto: (id: string, url: string) => void;
   toggleStop: (id: string) => void;
   clearStops: () => void;
+  reorderPlaces: (newOrder: Place[]) => void;
 }
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+
+async function geocodeAddress(line: string): Promise<Place> {
+  const cacheKey = "geo:" + line;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) return JSON.parse(cached);
+
+  try {
+    const { data } = await axios.get(NOMINATIM, {
+      params: { q: line, format: "json", limit: 1 },
+    });
+    if (!data[0]) {
+      console.warn("❗️ geocode fail:", line);
+      return {
+        id: crypto.randomUUID(),
+        addr: line,
+        lat: 0,
+        lon: 0,
+        visited: false,
+        photos: [],
+        geocodeFailed: true
+      };
+    }
+    const p: Place = {
+      id: crypto.randomUUID(),
+      addr: line,
+      lat: +data[0].lat,
+      lon: +data[0].lon,
+      visited: false,
+      photos: [],
+    };
+    localStorage.setItem(cacheKey, JSON.stringify(p));
+    return p;
+  } catch (e) {
+    console.error("geo error", e);
+    return {
+      id: crypto.randomUUID(),
+      addr: line,
+      lat: 0,
+      lon: 0,
+      visited: false,
+      photos: [],
+      geocodeFailed: true
+    };
+  }
+}
 
 export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
       places: [],
+      routeOptions: {
+        startPoint: 'current',
+        endPoint: 'start',
+        skipIds: [],
+        scenario: 'nearest'
+      },
+      setRouteOptions: (options) => 
+        set((state) => ({
+          routeOptions: { ...state.routeOptions, ...options }
+        })),
 
       async loadCsv(text) {
         const rows = Papa.parse<string[]>(text, { skipEmptyLines: true }).data;
@@ -49,55 +109,28 @@ export const usePlaces = create<Store>()(
               } as Place;
             }
 
-            /* 아니면 지오코딩 */
-            const cacheKey = "geo:" + line;
-            const cached = localStorage.getItem(cacheKey);
-            if (cached) return JSON.parse(cached);
-
-            try {
-              const { data } = await axios.get(NOMINATIM, {
-                params: { q: line, format: "json", limit: 1 },
-                headers: {
-                  "User-Agent": "GrassGPS/0.1 (demo@example.com)",
-                },
-              });
-              if (!data[0]) {
-                console.warn("❗️ geocode fail:", line);
-                return {
-                  id: crypto.randomUUID(),
-                  addr: line,
-                  lat: 0,
-                  lon: 0,
-                  visited: false,
-                  photos: [],
-                  geocodeFailed: true
-                } as Place;
-              }
-              const p: Place = {
-                id: crypto.randomUUID(),
-                addr: line,
-                lat: +data[0].lat,
-                lon: +data[0].lon,
-                visited: false,
-                photos: [],
-              };
-              localStorage.setItem(cacheKey, JSON.stringify(p));
-              return p;
-            } catch (e) {
-              console.error("geo error", e);
-              return {
-                id: crypto.randomUUID(),
-                addr: line,
-                lat: 0,
-                lon: 0,
-                visited: false,
-                photos: [],
-                geocodeFailed: true
-              } as Place;
-            }
+            return geocodeAddress(line);
           })
         );
-        set({ places: newPlaces.filter(Boolean) as Place[] });
+        set({ places: newPlaces.filter(Boolean) });
+      },
+
+      async addAddresses(text) {
+        const lines = text
+          .split('\n')
+          .map(line => line.trim().replace(/^"|"$/g, ''))  // Remove quotes at start/end
+          .filter(Boolean);
+        
+        // Filter out addresses that already exist
+        const existingAddrs = new Set(get().places.map(p => p.addr));
+        const newLines = lines.filter(line => !existingAddrs.has(line));
+        
+        if (newLines.length === 0) return;  // No new addresses to add
+        
+        const newPlaces = await Promise.all(newLines.map(geocodeAddress));
+        set((state) => ({
+          places: [...state.places, ...newPlaces]
+        }));
       },
 
       toggleVisited: (id) =>
@@ -125,6 +158,8 @@ export const usePlaces = create<Store>()(
         set({
           places: get().places.map((p) => ({ ...p, visited: false })),
         }),
+
+      reorderPlaces: (newOrder) => set({ places: newOrder }),
     }),
     { name: "grassgps" }
   )
