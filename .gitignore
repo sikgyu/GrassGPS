@@ -1,4 +1,20 @@
 # Logs
+ios/
+
+# Vite 빌드 산출물
+dist/
+
+# Capacitor Android (나중에 추가할 계획 없으면)
+android/
+
+# Xcode 파생 파일
+*.xcworkspace
+*.xcuserdata
+DerivedData/
+
+# macOS 메타
+.DS_Store
+
 logs
 *.log
 npm-debug.log*
