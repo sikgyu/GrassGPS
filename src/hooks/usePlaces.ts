@@ -16,6 +16,7 @@ export interface Place {
 
 interface Store {
   places: Place[];
+  routePlaces: string[];  // IDs of places included in the route
   routeOptions: RouteOptions;
   setRouteOptions: (options: Partial<RouteOptions>) => void;
   loadCsv: (text: string) => Promise<void>;
@@ -25,6 +26,11 @@ interface Store {
   toggleStop: (id: string) => void;
   clearStops: () => void;
   reorderPlaces: (newOrder: Place[]) => void;
+  // New functions for route management
+  addToRoute: (id: string) => void;
+  removeFromRoute: (id: string) => void;
+  reorderRoute: (newOrder: string[]) => void;
+  clearRoute: () => void;
 }
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
@@ -78,6 +84,7 @@ export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
       places: [],
+      routePlaces: [],  // Initialize empty route
       routeOptions: {
         startPoint: 'current',
         endPoint: 'start',
@@ -160,6 +167,26 @@ export const usePlaces = create<Store>()(
         }),
 
       reorderPlaces: (newOrder) => set({ places: newOrder }),
+
+      // New route management functions
+      addToRoute: (id) => 
+        set((state) => ({
+          routePlaces: [...state.routePlaces, id]
+        })),
+
+      removeFromRoute: (id) =>
+        set((state) => ({
+          routePlaces: state.routePlaces.filter(placeId => placeId !== id)
+        })),
+
+      reorderRoute: (newOrder) =>
+        set((state) => {
+          // 새로운 순서의 ID 배열로 routePlaces 업데이트
+          return { routePlaces: newOrder };
+        }),
+
+      clearRoute: () =>
+        set({ routePlaces: [] }),
     }),
     { name: "grassgps" }
   )

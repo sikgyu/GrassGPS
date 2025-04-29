@@ -18,6 +18,23 @@ function km(a: [number, number], b: [number, number]) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+const markerStyle = {
+  background: '#1976d2',
+  color: 'white',
+  borderRadius: '50%',
+  width: '32px',
+  height: '32px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontWeight: 'bold',
+  fontSize: '18px',
+  lineHeight: '32px', // 숫자가 한가운데 오도록
+  textAlign: 'center',
+  boxSizing: 'border-box',
+  border: '2px solid white', // (선택) 테두리로 더 동그랗게 보이게
+};
+
 export default function PlaceDrawer() {
   const { places, toggleVisited, addPhoto } = usePlaces();
   const [openId, setOpenId] = useState<string>();
@@ -37,12 +54,25 @@ export default function PlaceDrawer() {
     const getRoute = async () => {
       if (!pos || !place) return;
       try {
-        const url =
-          "https://api.openrouteservice.org/v2/directions/driving-car" +
-          `?api_key=${import.meta.env.VITE_ORS_KEY}` +
-          `&start=${pos[1]},${pos[0]}` +
-          `&end=${place.lon},${place.lat}`;
-        const { data } = await axios.get(url);
+        const API_KEY = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_OPENROUTE_API_KEY) ||
+                        (typeof process !== 'undefined' && process.env && process.env.REACT_APP_OPENROUTE_API_KEY) || '';
+        if (!API_KEY) {
+          console.warn('OpenRouteService API key is missing! Please set VITE_OPENROUTE_API_KEY in your .env file.');
+          return;
+        }
+        const url = `/api/ors/v2/directions/driving-car?start=${pos[1]},${pos[0]}&end=${place.lon},${place.lat}`;
+        const { data } = await axios.get(url, {
+          headers: {
+            'Authorization': API_KEY,
+            'Accept': 'application/json',
+          }
+        });
+        
+        // Validate response data structure
+        if (!data?.routes?.[0]?.segments?.[0]) {
+          console.warn('Unexpected API response format:', data);
+          return;
+        }
         const seg = data.routes[0].segments[0];
         setDrive({
           km: (seg.distance / 1000).toFixed(2),
@@ -50,6 +80,8 @@ export default function PlaceDrawer() {
         });
       } catch (e) {
         console.error("ORS error", e);
+        // Clear previous drive data on error
+        setDrive(undefined);
       }
     };
     getRoute();
@@ -139,4 +171,13 @@ export default function PlaceDrawer() {
 
   /* createPortal → body 최상단 */
   return createPortal(body, document.body);
+}
+
+function createNumberedIcon(index) {
+  return L.divIcon({
+    className: "custom-icon",
+    html: `<div style="${Object.entries(markerStyle).map(([k, v]) => `${k}:${v}`).join(';')}">${index + 1}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+  });
 }
