@@ -86,6 +86,19 @@ export default function Sidebar() {
   // Mobile detection
   const isMobile = useMemo(() => window.innerWidth < 768, []);
 
+  // 모두 선택 기능
+  const selectAll = useCallback(() => {
+    const notInRoute = filteredPlaces
+      .filter(place => !routePlaces.includes(place.id))
+      .map(place => place.id);
+    notInRoute.forEach(id => addToRoute(id));
+  }, [filteredPlaces, routePlaces, addToRoute]);
+
+  // 모두 해제 기능
+  const deselectAll = useCallback(() => {
+    routePlaces.forEach(id => removeFromRoute(id));
+  }, [routePlaces, removeFromRoute]);
+
   return (
     <aside className="w-96 bg-gray-50 flex flex-col">
       {/* Tabs */}
@@ -117,6 +130,24 @@ export default function Sidebar() {
         <DragDropContext onDragEnd={onDragEnd}>
           {activeTab === 'places' ? (
             <>
+              {/* 모두 선택/해제 버튼 */}
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={selectAll}
+                  className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-colors"
+                  disabled={filteredPlaces.length === routePlaces.length}
+                >
+                  모두 선택
+                </button>
+                <button
+                  onClick={deselectAll}
+                  className="flex-1 py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+                  disabled={routePlaces.length === 0}
+                >
+                  모두 해제
+                </button>
+              </div>
+
               {!filteredPlaces.length ? (
                 <p className="text-sm text-gray-500 text-center py-4">
                   아직 등록된 장소가 없습니다.
