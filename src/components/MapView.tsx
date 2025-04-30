@@ -33,7 +33,12 @@ function createNumberedIcon(index: number) {
   });
 }
 
-export default function MapView() {
+interface MapViewProps {
+  optimizeTrigger: boolean;
+  setOptimizeTrigger: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+export default function MapView({ optimizeTrigger, setOptimizeTrigger }: MapViewProps) {
   const { places, routePlaces } = usePlaces();
   const pos = useGeo();
   const [posState, setPos] = useState<[number, number] | undefined>(pos);
@@ -66,9 +71,11 @@ export default function MapView() {
         className="absolute inset-0"
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        
-        <RoutePolyline places={routeFilteredPlaces} />
-
+        <RoutePolyline
+          places={routeFilteredPlaces}
+          optimizeTrigger={optimizeTrigger}
+          onOptimizeHandled={() => setOptimizeTrigger(false)}
+        />
         {routeFilteredPlaces.map((place, idx) => (
           <Marker
             key={place.id}
@@ -81,7 +88,6 @@ export default function MapView() {
             <Popup>{place.addr}</Popup>
           </Marker>
         ))}
-
         {posState && (
           <Marker position={posState}>
             <Popup>현재 위치</Popup>

@@ -7,6 +7,7 @@ import "./index.css";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [optimizeTrigger, setOptimizeTrigger] = useState(false);
 
   return (
     <div className="flex flex-col h-full">
@@ -14,10 +15,9 @@ export default function App() {
       <Navbar onMenuClick={() => setSidebarOpen((v) => !v)} />
 
       <div className="flex flex-1 overflow-hidden relative">
-        <Sidebar open={sidebarOpen} />
-
+        <Sidebar open={sidebarOpen} optimizeTrigger={optimizeTrigger} setOptimizeTrigger={setOptimizeTrigger} />
         {/* 지도 영역은 flex-1 이라 사이드바가 0-px일 때 전체를 차지함 */}
-        <MapView />
+        <MapView optimizeTrigger={optimizeTrigger} setOptimizeTrigger={setOptimizeTrigger} />
         <PlaceDrawer />
       </div>
     </div>

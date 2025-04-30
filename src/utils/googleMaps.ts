@@ -8,15 +8,13 @@ if (!API_KEY) {
 
 /* 2. Google Maps 로더 (안정판 weekly + 필수 라이브러리 지정) ---- */
 let mapsPromise: Promise<typeof google.maps> | null = null;
-export function loadGoogleMaps() {
+export function loadGoogleMaps(): Promise<typeof google.maps> {
   if (mapsPromise) return mapsPromise;
-
   mapsPromise = new Loader({
     apiKey: API_KEY,
     version: "weekly",
     libraries: ["routes", "geometry"]   // ← Directions & polyline decoder
-  }).load();
-
+  }).load().then(() => window.google.maps);
   return mapsPromise;
 }
 
@@ -24,7 +22,8 @@ export function loadGoogleMaps() {
 export async function calculateRoute(
   origin: google.maps.LatLngLiteral,
   destination: google.maps.LatLngLiteral,
-  waypoints: google.maps.LatLngLiteral[] = []
+  waypoints: google.maps.LatLngLiteral[] = [],
+  options?: { trafficModel?: string }
 ) {
   const gmaps = await loadGoogleMaps();
 
@@ -36,7 +35,13 @@ export async function calculateRoute(
     destination,
     waypoints: waypoints.map((w) => ({ location: w, stopover: true })),
     optimizeWaypoints: true,
-    travelMode: gmaps.TravelMode.DRIVING
+    travelMode: gmaps.TravelMode.DRIVING,
+    drivingOptions: options?.trafficModel
+    ? {
+        departureTime: new Date(Date.now() + 60 * 1000), // 1분 뒤
+        trafficModel: options.trafficModel as any,
+      }
+    : undefined,
   });
 
   /* 3-b. polyline 디코더 */

@@ -33,7 +33,8 @@ interface Store {
   clearRoute: () => void;
 }
 
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 async function geocodeAddress(line: string): Promise<Place> {
   const cacheKey = "geo:" + line;
@@ -41,10 +42,10 @@ async function geocodeAddress(line: string): Promise<Place> {
   if (cached) return JSON.parse(cached);
 
   try {
-    const { data } = await axios.get(NOMINATIM, {
-      params: { q: line, format: "json", limit: 1 },
+    const { data } = await axios.get(GOOGLE_GEOCODE, {
+      params: { address: line, key: API_KEY },
     });
-    if (!data[0]) {
+    if (!data.results[0]) {
       console.warn("❗️ geocode fail:", line);
       return {
         id: crypto.randomUUID(),
@@ -59,8 +60,8 @@ async function geocodeAddress(line: string): Promise<Place> {
     const p: Place = {
       id: crypto.randomUUID(),
       addr: line,
-      lat: +data[0].lat,
-      lon: +data[0].lon,
+      lat: data.results[0].geometry.location.lat,
+      lon: data.results[0].geometry.location.lng,
       visited: false,
       photos: [],
     };
@@ -78,6 +79,11 @@ async function geocodeAddress(line: string): Promise<Place> {
       geocodeFailed: true
     };
   }
+}
+
+function extractRegion(addr: string) {
+  const parts = addr.split(",");
+  return parts[1]?.trim().toLowerCase() || "";
 }
 
 export const usePlaces = create<Store>()(
@@ -115,10 +121,11 @@ export const usePlaces = create<Store>()(
                 photos: [],
               } as Place;
             }
-
             return geocodeAddress(line);
           })
         );
+        // 지역명 기준 알파벳 정렬
+        newPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
         set({ places: newPlaces.filter(Boolean) });
       },
 
@@ -135,9 +142,10 @@ export const usePlaces = create<Store>()(
         if (newLines.length === 0) return;  // No new addresses to add
         
         const newPlaces = await Promise.all(newLines.map(geocodeAddress));
-        set((state) => ({
-          places: [...state.places, ...newPlaces]
-        }));
+        // 지역명 기준 알파벳 정렬
+        const allPlaces = [...get().places, ...newPlaces];
+        allPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
+        set(() => ({ places: allPlaces }));
       },
 
       toggleVisited: (id) =>

@@ -13,9 +13,11 @@ type Tab = "places" | "route";
 
 interface Props {
   open: boolean;          // App → 상태 전달
+  optimizeTrigger: boolean;
+  setOptimizeTrigger: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export default function Sidebar({ open }: Props) {
+export default function Sidebar({ open, optimizeTrigger, setOptimizeTrigger }: Props) {
   const {
     places, routePlaces, reorderPlaces,
     addToRoute, removeFromRoute, reorderRoute
@@ -60,11 +62,7 @@ export default function Sidebar({ open }: Props) {
 
   const optimize = () => {
     if (!pos) return alert("현재 위치를 가져올 수 없습니다.");
-    const [lat, lon] = pos;
-    const sorted = [...routeList].sort(
-      (a, b) => haversine(lat, lon, a.lat, a.lon) - haversine(lat, lon, b.lat, b.lon)
-    );
-    reorderRoute(sorted.map(p => p.id));
+    setOptimizeTrigger(true);
   };
 
   /* -------- 렌더 -------- */
@@ -117,8 +115,10 @@ export default function Sidebar({ open }: Props) {
                                 inRoute={routePlaces.includes(pl.id)}
                                 onAdd={() => addToRoute(pl.id)}
                                 onRemove={() => {
-                                  reorderPlaces(places.filter(p => p.id !== pl.id));
-                                  removeFromRoute(pl.id);
+                                  if (window.confirm('정말 이 주소를 삭제하시겠습니까?')) {
+                                    reorderPlaces(places.filter(p => p.id !== pl.id));
+                                    removeFromRoute(pl.id);
+                                  }
                                 }}
                               />
                             )}
