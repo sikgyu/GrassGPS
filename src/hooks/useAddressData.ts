@@ -7,7 +7,8 @@ export type Place = {
   lon: number;
 };
 
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 export async function loadPlaces(): Promise<Place[]> {
   console.log("loadPlaces CALLED");
@@ -39,19 +40,17 @@ export async function loadPlaces(): Promise<Place[]> {
       const cached = localStorage.getItem(key);
       if (cached) return JSON.parse(cached);
 
-      const { data } = await axios.get(NOMINATIM, {
+      const { data } = await axios.get(GOOGLE_GEOCODE, {
         params: {
-          q: addr,
-          format: "json",
-          limit: 1,
+          address: addr,
+          key: API_KEY,
         },
-        headers: { Referer: window.location.origin },
       });
 
-      if (!data[0]) throw new Error(`Geocoding failed for ${addr}`);
+      if (!data.results[0]) throw new Error(`Geocoding failed for ${addr}`);
 
-      const { lat, lon } = data[0];
-      const obj = { addr, lat: +lat, lon: +lon } as Place;
+      const { lat, lng } = data.results[0].geometry.location;
+      const obj = { addr, lat, lon: lng } as Place;
       localStorage.setItem(key, JSON.stringify(obj));
       return obj;
     })

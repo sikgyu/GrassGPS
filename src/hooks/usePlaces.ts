@@ -16,6 +16,7 @@ export interface Place {
 
 interface Store {
   places: Place[];
+  routePlaces: string[];  // IDs of places included in the route
   routeOptions: RouteOptions;
   setRouteOptions: (options: Partial<RouteOptions>) => void;
   loadCsv: (text: string) => Promise<void>;
@@ -25,9 +26,15 @@ interface Store {
   toggleStop: (id: string) => void;
   clearStops: () => void;
   reorderPlaces: (newOrder: Place[]) => void;
+  // New functions for route management
+  addToRoute: (id: string) => void;
+  removeFromRoute: (id: string) => void;
+  reorderRoute: (newOrder: string[]) => void;
+  clearRoute: () => void;
 }
 
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
+const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 async function geocodeAddress(line: string): Promise<Place> {
   const cacheKey = "geo:" + line;
@@ -35,10 +42,10 @@ async function geocodeAddress(line: string): Promise<Place> {
   if (cached) return JSON.parse(cached);
 
   try {
-    const { data } = await axios.get(NOMINATIM, {
-      params: { q: line, format: "json", limit: 1 },
+    const { data } = await axios.get(GOOGLE_GEOCODE, {
+      params: { address: line, key: API_KEY },
     });
-    if (!data[0]) {
+    if (!data.results[0]) {
       console.warn("❗️ geocode fail:", line);
       return {
         id: crypto.randomUUID(),
@@ -53,8 +60,8 @@ async function geocodeAddress(line: string): Promise<Place> {
     const p: Place = {
       id: crypto.randomUUID(),
       addr: line,
-      lat: +data[0].lat,
-      lon: +data[0].lon,
+      lat: data.results[0].geometry.location.lat,
+      lon: data.results[0].geometry.location.lng,
       visited: false,
       photos: [],
     };
@@ -74,10 +81,16 @@ async function geocodeAddress(line: string): Promise<Place> {
   }
 }
 
+function extractRegion(addr: string) {
+  const parts = addr.split(",");
+  return parts[1]?.trim().toLowerCase() || "";
+}
+
 export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
       places: [],
+      routePlaces: [],  // Initialize empty route
       routeOptions: {
         startPoint: 'current',
         endPoint: 'start',
@@ -108,10 +121,11 @@ export const usePlaces = create<Store>()(
                 photos: [],
               } as Place;
             }
-
             return geocodeAddress(line);
           })
         );
+        // 지역명 기준 알파벳 정렬
+        newPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
         set({ places: newPlaces.filter(Boolean) });
       },
 
@@ -128,9 +142,10 @@ export const usePlaces = create<Store>()(
         if (newLines.length === 0) return;  // No new addresses to add
         
         const newPlaces = await Promise.all(newLines.map(geocodeAddress));
-        set((state) => ({
-          places: [...state.places, ...newPlaces]
-        }));
+        // 지역명 기준 알파벳 정렬
+        const allPlaces = [...get().places, ...newPlaces];
+        allPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
+        set(() => ({ places: allPlaces }));
       },
 
       toggleVisited: (id) =>
@@ -160,6 +175,26 @@ export const usePlaces = create<Store>()(
         }),
 
       reorderPlaces: (newOrder) => set({ places: newOrder }),
+
+      // New route management functions
+      addToRoute: (id) => 
+        set((state) => ({
+          routePlaces: [...state.routePlaces, id]
+        })),
+
+      removeFromRoute: (id) =>
+        set((state) => ({
+          routePlaces: state.routePlaces.filter(placeId => placeId !== id)
+        })),
+
+      reorderRoute: (newOrder) =>
+        set((state) => {
+          // 새로운 순서의 ID 배열로 routePlaces 업데이트
+          return { routePlaces: newOrder };
+        }),
+
+      clearRoute: () =>
+        set({ routePlaces: [] }),
     }),
     { name: "grassgps" }
   )

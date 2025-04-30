@@ -1,120 +1,231 @@
-// NOTE: You must install react-beautiful-dnd: npm install react-beautiful-dnd
-import { useCallback, useMemo } from "react";
-import { usePlaces } from "../hooks/usePlaces";
+// NOTE:  npm i @hello-pangea/dnd
+import {
+  useState, useCallback, useMemo, type ReactNode
+} from "react";
+import {
+  DragDropContext, Droppable, Draggable, type DropResult
+} from "@hello-pangea/dnd";
+import { usePlaces, type Place } from "../hooks/usePlaces";
 import { useGeo } from "../hooks/useGeo";
 import { haversine } from "../utils-haversine";
-import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-  type DropResult
-} from "@hello-pangea/dnd";
 
-export default function Sidebar() {
-  const { places, reorderPlaces } = usePlaces();
+type Tab = "places" | "route";
+
+interface Props {
+  open: boolean;          // App → 상태 전달
+  optimizeTrigger: boolean;
+  setOptimizeTrigger: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+export default function Sidebar({ open, optimizeTrigger, setOptimizeTrigger }: Props) {
+  const {
+    places, routePlaces, reorderPlaces,
+    addToRoute, removeFromRoute, reorderRoute
+  } = usePlaces();
   const pos = useGeo();
 
-  const onDragEnd = useCallback((result: DropResult) => {
-    if (!result.destination) return;
-    const items = Array.from(places);
-    const [removed] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, removed);
-    reorderPlaces(items);
-  }, [places, reorderPlaces]);
+  const [tab, setTab] = useState<Tab>("places");
 
-  const optimizeByCurrentLocation = useCallback(() => {
-    if (!pos) {
-      alert('현재 위치를 가져올 수 없습니다. 위치 권한을 확인해주세요.');
-      return;
+  /* -------- 드래그 -------- */
+  const onDragEnd = useCallback((r: DropResult) => {
+    if (!r.destination) return;
+    if (r.type === "places") {
+      const arr = Array.from(places);
+      const [m] = arr.splice(r.source.index, 1);
+      arr.splice(r.destination.index, 0, m);
+      reorderPlaces(arr);
+    } else {
+      const arr = Array.from(routePlaces);
+      const [id] = arr.splice(r.source.index, 1);
+      arr.splice(r.destination.index, 0, id);
+      reorderRoute(arr);
     }
+  }, [places, routePlaces, reorderPlaces, reorderRoute]);
 
-    const [lat, lon] = pos;
-    const sorted = [...places].sort(
-      (a, b) => haversine(lat, lon, a.lat, a.lon) - haversine(lat, lon, b.lat, b.lon)
-    );
-    reorderPlaces(sorted);
-  }, [pos, places, reorderPlaces]);
-
-  const removePlace = useCallback((id: string) => {
-    if (window.confirm('정말 이 장소를 제거하시겠습니까?')) {
-      reorderPlaces(places.filter(p => p.id !== id));
-    }
-  }, [places, reorderPlaces]);
-
-  const filteredPlaces = useMemo(() => 
-    places.filter(p => p.id && !p.geocodeFailed),
+  /* -------- 데이터 -------- */
+  const filtered = useMemo(
+    () => places.filter((p) => p.id && !p.geocodeFailed),
     [places]
   );
+  const routeList = useMemo(
+    () => routePlaces.map(id => places.find(p => p.id === id))
+                     .filter((p): p is Place => !!p),
+    [places, routePlaces]
+  );
 
+  /* -------- 버튼 -------- */
+  const selectAll   = () => filtered
+      .filter(p => !routePlaces.includes(p.id))
+      .forEach(p => addToRoute(p.id));
+
+  const deselectAll = () => routePlaces.forEach(removeFromRoute);
+
+  const optimize = () => {
+    if (!pos) return alert("현재 위치를 가져올 수 없습니다.");
+    setOptimizeTrigger(true);
+  };
+
+  /* -------- 렌더 -------- */
   return (
-    <aside className="w-60 bg-gray-50 p-2 overflow-y-auto">
-      <h2 className="font-semibold mb-2">Stops</h2>
-      <button 
-        onClick={optimizeByCurrentLocation}
-        className="btn w-full mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={!pos || filteredPlaces.length < 2}
-        title={!pos ? "위치 정보를 가져올 수 없습니다" : 
-               filteredPlaces.length < 2 ? "최적화하려면 최소 2개의 장소가 필요합니다" : 
-               "현재 위치를 기준으로 최적의 경로를 계산합니다"}
-      >
-        현재 위치 기준 최적화
-      </button>
+    <aside
+      className={`
+        flex flex-col bg-gray-50 shrink-0 overflow-hidden
+        transition-all duration-300
+        ${open ? "w-96" : "w-0"}
+      `}
+    >
+      {open && (
+        <>
+          {/* Tabs */}
+          <div className="flex border-b">
+            <TabBtn act={tab} me="places" setAct={setTab}>Places</TabBtn>
+            <TabBtn act={tab} me="route"  setAct={setTab}>Route</TabBtn>
+          </div>
 
-      {!filteredPlaces.length ? (
-        <p className="text-sm text-gray-500 text-center py-4">
-          아직 등록된 장소가 없습니다.
-        </p>
-      ) : (
-        <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="stops">
-            {(provided) => (
-              <div
-                {...provided.droppableProps}
-                ref={provided.innerRef}
-                className="space-y-2"
-                role="list"
-              >
-                {filteredPlaces.map((place, index) => (
-                  <Draggable
-                    key={place.id}
-                    draggableId={place.id}
-                    index={index}
-                  >
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.draggableProps}
-                        className={`
-                          bg-white rounded-lg shadow p-2 flex items-center gap-2
-                          ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500 opacity-90 z-50' : ''}
-                          transition-all duration-200 hover:shadow-md
-                        `}
-                        style={provided.draggableProps.style}
-                      >
-                        <div
-                          {...provided.dragHandleProps}
-                          className={`flex items-center gap-2 flex-1 ${snapshot.isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                        >
-                          <span className="w-6 text-gray-500 select-none">{index + 1}.</span>
-                          <span className="flex-1 text-sm">{place.addr}</span>
-                        </div>
-                        <button
-                          onClick={() => removePlace(place.id)}
-                          className="text-gray-400 hover:text-red-500 px-2 py-1 rounded transition-colors"
-                          title="제거"
-                        >
-                          ×
-                        </button>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-2">
+            <DragDropContext onDragEnd={onDragEnd}>
+              {tab === "places" ? (
+                <>
+                  <div className="flex gap-2 mb-4">
+                    <button
+                      className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
+                      onClick={selectAll}
+                      disabled={filtered.length === routePlaces.length}
+                    >
+                      모두 선택
+                    </button>
+                    <button
+                      className="flex-1 py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm"
+                      onClick={deselectAll}
+                      disabled={routePlaces.length === 0}
+                    >
+                      모두 해제
+                    </button>
+                  </div>
+
+                  <Droppable droppableId="places" type="places">
+                    {(p) => (
+                      <div ref={p.innerRef} {...p.droppableProps} className="space-y-2">
+                        {filtered.map((pl, i) => (
+                          <Draggable key={pl.id} draggableId={pl.id} index={i}>
+                            {(d, s) => (
+                              <Card
+                                d={d} s={s} i={i} place={pl}
+                                inRoute={routePlaces.includes(pl.id)}
+                                onAdd={() => addToRoute(pl.id)}
+                                onRemove={() => {
+                                  if (window.confirm('정말 이 주소를 삭제하시겠습니까?')) {
+                                    reorderPlaces(places.filter(p => p.id !== pl.id));
+                                    removeFromRoute(pl.id);
+                                  }
+                                }}
+                              />
+                            )}
+                          </Draggable>
+                        ))}
+                        {p.placeholder}
                       </div>
                     )}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-              </div>
-            )}
-          </Droppable>
-        </DragDropContext>
+                  </Droppable>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="btn w-full mb-4 disabled:opacity-50"
+                    onClick={optimize}
+                    disabled={!pos || routeList.length < 2}
+                  >
+                    Optimize from Current Location
+                  </button>
+
+                  <Droppable droppableId="route" type="route">
+                    {(p) => (
+                      <div ref={p.innerRef} {...p.droppableProps} className="space-y-2">
+                        {routeList.map((pl, i) => (
+                          <Draggable key={pl.id} draggableId={pl.id} index={i}>
+                            {(d, s) => (
+                              <Card
+                                d={d} s={s} i={i} place={pl}
+                                inRoute
+                                onRemove={() => removeFromRoute(pl.id)}
+                              />
+                            )}
+                          </Draggable>
+                        ))}
+                        {p.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                </>
+              )}
+            </DragDropContext>
+          </div>
+        </>
       )}
     </aside>
+  );
+}
+
+/* ------------ 하위 컴포넌트 ------------ */
+function TabBtn({ act, me, setAct, children }:{
+  act: Tab; me: Tab; children: ReactNode; setAct: (t: Tab)=>void;
+}) {
+  const active = act === me;
+  return (
+    <button
+      onClick={() => setAct(me)}
+      className={`flex-1 py-2 font-medium ${
+        active ? "border-b-2 border-blue-500 text-blue-600"
+                : "text-gray-500 hover:text-gray-700"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Card({
+  d, s, i, place, inRoute, onAdd, onRemove
+}:{
+  d:any; s:any; i:number; place:Place; inRoute:boolean;
+  onAdd?:()=>void; onRemove:()=>void;
+}) {
+  return (
+    <div
+      ref={d.innerRef}
+      {...d.draggableProps}
+      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${
+        s.isDragging && "shadow-lg ring-2 ring-blue-500"}`}
+      style={d.draggableProps.style}
+    >
+      <div
+        {...d.dragHandleProps}
+        className={`flex items-center gap-2 flex-1 ${
+          s.isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+      >
+        <span className="w-6 text-gray-500">{i + 1}.</span>
+        <span className="flex-1 text-sm">{place.addr}</span>
+      </div>
+
+      {inRoute ? (
+        <span className="text-green-500 font-bold px-2">✓</span>
+      ) : (
+        <button
+          onClick={onAdd}
+          className="text-gray-400 hover:text-green-500 px-2"
+          title="경로에 추가"
+        >
+          +
+        </button>
+      )}
+
+      <button
+        onClick={onRemove}
+        className="text-gray-400 hover:text-red-500 px-2"
+        title="삭제"
+      >
+        ×
+      </button>
+    </div>
   );
 }
