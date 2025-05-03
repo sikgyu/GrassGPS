@@ -5,3 +5,10 @@ export type RouteOptions = {
   skipIds: string[];
   scenario: 'nearest' | 'farthest' | 'roundTrip' | 'custom';
 }; 
+
+export type DayOfWeek = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
+
+export interface PlannerState {
+  todayPlan: Place[];
+  weekPlan: Record<DayOfWeek, Place[]>;
+}
