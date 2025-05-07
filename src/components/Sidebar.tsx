@@ -1,13 +1,11 @@
-// src/components/Sidebar.tsx
-
-import { useState, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useCallback, useMemo, ReactNode } from "react";
 import {
   DragDropContext,
   Droppable,
   Draggable,
-  type DropResult,
+  DropResult,
 } from "@hello-pangea/dnd";
-import { usePlaces, type Place } from "../hooks/usePlaces";
+import { usePlaces, Place } from "../hooks/usePlaces";
 import { useGeo } from "../hooks/useGeo";
 import { haversine } from "../utils/haversine";
 
@@ -17,14 +15,22 @@ interface RouteInfo {
   summary: string;
   distance: string;
   duration: string;
+  waypointOrder?: number[];
 }
 
 interface Props {
   open: boolean;
+  optimizeTrigger: boolean;
+  setOptimizeTrigger: React.Dispatch<React.SetStateAction<boolean>>;
   routeInfo: RouteInfo;
 }
 
-export default function Sidebar({ open, routeInfo }: Props) {
+export function Sidebar({
+  open,
+  optimizeTrigger,
+  setOptimizeTrigger,
+  routeInfo,
+}: Props) {
   const {
     places,
     routePlaces,
@@ -73,24 +79,12 @@ export default function Sidebar({ open, routeInfo }: Props) {
     filteredPlaces
       .filter((p) => !routePlaces.includes(p.id))
       .forEach((p) => addToRoute(p.id));
-  const deselectAll = () =>
-    routePlaces.forEach((id) => removeFromRoute(id));
+  const deselectAll = () => routePlaces.forEach((id) => removeFromRoute(id));
 
-  /**
-   * Cheapest‑Insertion TSP
-   * 1) Home→Home 로 시작
-   * 2) 남은 지점 중 삽입 비용이 가장 작은 지점 순차 삽입
-   */
-  const optimizeCheapestInsertion = () => {
-    if (!pos) {
-      alert("현재 위치를 가져올 수 없습니다.");
-      return;
-    }
+  /* 4) Local TSP: Cheapest‑Insertion */
+  const optimizeLocal = () => {
+    if (!pos) return alert("현재 위치를 가져올 수 없습니다.");
     const [homeLat, homeLon] = pos;
-
-    // 남은 지점 복사
-    const unvisited = [...routeList];
-    // Home 더미 엔트리
     const home: Place = {
       id: "__HOME__",
       addr: "Home",
@@ -99,16 +93,13 @@ export default function Sidebar({ open, routeInfo }: Props) {
       visited: false,
       photos: [],
     };
-    // 시작 투어: Home → Home
+    let unvisited = [...routeList];
     let tour: Place[] = [home, home];
 
-    // Cheapest‑Insertion 루프
     while (unvisited.length > 0) {
-      let bestInc = Infinity;
-      let bestPtIdx = -1;
-      let bestInsertPos = -1;
-
-      // 각 미방문 지점 P, 그리고 각 투어 엣지 (A→B) 에 대해 삽입 비용 계산
+      let bestInc = Infinity,
+        bestPi = 0,
+        bestInsertPos = 0;
       unvisited.forEach((p, pi) => {
         for (let j = 0; j < tour.length - 1; j++) {
           const A = tour[j],
@@ -119,25 +110,23 @@ export default function Sidebar({ open, routeInfo }: Props) {
           const inc = costAP + costPB - costAB;
           if (inc < bestInc) {
             bestInc = inc;
-            bestPtIdx = pi;
+            bestPi = pi;
             bestInsertPos = j + 1;
           }
         }
       });
-
-      // 최적 삽입 위치에 지점 추가
-      const [nextPt] = unvisited.splice(bestPtIdx, 1);
-      tour.splice(bestInsertPos, 0, nextPt);
+      const [nextP] = unvisited.splice(bestPi, 1);
+      tour.splice(bestInsertPos, 0, nextP);
     }
 
-    // home 더미 앞뒤 제거, 최종 ID 배열 생성
-    const newOrder = tour.slice(1, -1).map((p) => p.id);
-
-    // 상태 업데이트
-    reorderRoute(newOrder);
+    reorderRoute(tour.slice(1, -1).map((p) => p.id));
   };
 
-  /* 4) 렌더링 */
+  /* 5) Optimize 클릭 */
+  const onOptimizeClick = () => {
+    optimizeLocal();
+  };
+
   return (
     <aside
       className={`
@@ -162,23 +151,24 @@ export default function Sidebar({ open, routeInfo }: Props) {
             <DragDropContext onDragEnd={onDragEnd}>
               {tab === "places" ? (
                 <>
-                  {/* Places 탭 */}
+                  {/* — Places 탭 — */}
                   <div className="flex gap-2 mb-4">
                     <button
-                      className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
                       onClick={selectAll}
                       disabled={filteredPlaces.length === routePlaces.length}
+                      className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
                     >
                       모두 선택
                     </button>
                     <button
-                      className="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm"
                       onClick={deselectAll}
                       disabled={routePlaces.length === 0}
+                      className="flex-1 py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm"
                     >
                       모두 해제
                     </button>
                   </div>
+
                   <Droppable droppableId="places" type="places">
                     {(prov) => (
                       <div
@@ -200,16 +190,7 @@ export default function Sidebar({ open, routeInfo }: Props) {
                                 place={pl}
                                 inRoute={routePlaces.includes(pl.id)}
                                 onAdd={() => addToRoute(pl.id)}
-                                onRemove={() => {
-                                  if (
-                                    window.confirm("삭제하시겠습니까?")
-                                  ) {
-                                    reorderPlaces(
-                                      places.filter((x) => x.id !== pl.id)
-                                    );
-                                    removeFromRoute(pl.id);
-                                  }
-                                }}
+                                onRemove={() => removeFromRoute(pl.id)}
                               />
                             )}
                           </Draggable>
@@ -221,14 +202,16 @@ export default function Sidebar({ open, routeInfo }: Props) {
                 </>
               ) : (
                 <>
-                  {/* Route 탭 */}
-                  <button
-                    className="w-full py-2 mb-4 bg-green-500 hover:bg-green-600 text-white rounded disabled:opacity-50"
-                    onClick={optimizeCheapestInsertion}
-                    disabled={!pos || routeList.length < 2}
-                  >
-                    Optimize Cheapest‑Insertion
-                  </button>
+                  {/* — Route 탭 — */}
+                  <div className="flex gap-2 mb-4">
+                    <button
+                      onClick={onOptimizeClick}
+                      disabled={!pos || routeList.length < 2}
+                      className="flex-none py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded"
+                    >
+                      Optimize
+                    </button>
+                  </div>
 
                   <div className="bg-white p-4 mb-4 rounded shadow text-sm">
                     <div>
@@ -238,7 +221,7 @@ export default function Sidebar({ open, routeInfo }: Props) {
                       <b>총 거리:</b> {routeInfo.distance}
                     </div>
                     <div>
-                      <b>총 시간:</b> {routeInfo.duration}
+                      <b>소요 시간:</b> {routeInfo.duration}
                     </div>
                   </div>
 
@@ -289,8 +272,8 @@ function TabBtn({
 }: {
   act: Tab;
   me: Tab;
-  children: ReactNode;
   setAct: (t: Tab) => void;
+  children: ReactNode;
 }) {
   const active = act === me;
   return (
@@ -328,10 +311,10 @@ function Card({
     <div
       ref={d.innerRef}
       {...d.draggableProps}
-      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${
-        s.isDragging && "shadow-lg ring-2 ring-blue-500"
-      }`}
       style={d.draggableProps.style}
+      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${
+        s.isDragging ? "shadow-lg ring-2 ring-blue-500" : ""
+      }`}
     >
       <div
         {...d.dragHandleProps}

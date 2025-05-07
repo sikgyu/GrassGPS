@@ -1,71 +1,75 @@
-import { useEffect, useState, MutableRefObject } from "react";
+import { useEffect, useState, RefObject } from "react";
+import React from "react";
 import { Polyline } from "react-leaflet";
 import { LatLngBounds } from "leaflet";
-import { calculateRoute } from "../utils/googleMaps";
 import { useGeo } from "../hooks/useGeo";
-import { usePlaces, type Place } from "../hooks/usePlaces";
+import { usePlaces } from "../hooks/usePlaces";
 
 interface Props {
-  places: Place[];
+  places: { id: string; lat: number; lon: number }[];
   optimizeTrigger: boolean;
   onOptimizeHandled: () => void;
-  onRouteInfo: (i:{ summary:string; distance:string; duration:string }) => void;
-  mapRef: MutableRefObject<L.Map | null>;
+  onRouteInfo: (info: {
+    summary: string;
+    distance: string;
+    duration: string;
+    waypointOrder?: number[];
+  }) => void;
+  mapRef: RefObject<L.Map | null>;
 }
 
-export default function RoutePolyline({
-  places, optimizeTrigger, onOptimizeHandled, onRouteInfo, mapRef,
+function RoutePolyline({
+  places,
+  optimizeTrigger,
+  onOptimizeHandled,
+  onRouteInfo,
+  mapRef,
 }: Props) {
   const pos = useGeo();
   const { reorderRoute } = usePlaces();
   const [coords, setCoords] = useState<[number, number][]>([]);
 
+  // 1️⃣ 경로/거리 계산 (places 변화에만 반응)
   useEffect(() => {
-    if (!pos || places.length===0) return;
-    let alive = true;
+    if (!pos || places.length < 2) return;
 
-    const origin   = { lat: pos[0], lng: pos[1] };
-    const dest     = { lat: places.at(-1)!.lat, lng: places.at(-1)!.lon };
-    const waypts   = places.slice(0,-1).map(p=>({ lat:p.lat, lng:p.lon }));
-    const wayIds   = places.slice(0,-1).map(p=>p.id);
+    // Calculate route using Local TSP
+    const route = places.map(p => [p.lat, p.lon] as [number, number]);
+    setCoords(route);
 
-    calculateRoute(origin, dest, waypts, {
-      trafficModel:"best_guess",
-      optimizeWaypoints: optimizeTrigger,
-    })
-      .then(({ res, decode }) => {
-        if (!alive) return;
-        const route = res.routes[0];
-        const poly  = decode(route.overview_polyline).map(ll=>[ll.lat(),ll.lng()]);
-        setCoords(poly);
+    // Calculate total distance
+    let totalDistance = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      const [lat1, lon1] = route[i];
+      const [lat2, lon2] = route[i + 1];
+      const dx = lon2 - lon1;
+      const dy = lat2 - lat1;
+      totalDistance += Math.sqrt(dx * dx + dy * dy) * 111; // rough km conversion
+    }
 
-        /* 지도 맞춤: TSP 수행 시에만 */
-        if (optimizeTrigger && mapRef.current)
-          mapRef.current.fitBounds(new LatLngBounds(poly),{padding:[40,40]});
+    // Estimate duration (assuming average speed of 30 km/h)
+    const duration = (totalDistance / 30) * 60; // in minutes
 
-        /* 거리/시간 합계 */
-        const dist = route.legs.reduce((s,l)=>s+l.distance.value,0);
-        const dura = route.legs.reduce((s,l)=>s+(l.duration_in_traffic?.value ?? l.duration.value),0);
-        onRouteInfo({
-          summary:  route.summary ?? "",
-          distance: (dist/1000).toFixed(1)+" km",
-          duration: Math.round(dura/60)+" mins",
-        });
+    // Update route info
+    onRouteInfo({
+      summary: "Local TSP Route",
+      distance: totalDistance.toFixed(1) + " km",
+      duration: Math.round(duration) + " mins",
+      waypointOrder: places.map((_, i) => i),
+    });
+  }, [places, pos, onRouteInfo]);
 
-        /* 리스트 재정렬 */
-        if (optimizeTrigger && route.waypoint_order) {
-          reorderRoute([
-            ...route.waypoint_order.map(i=>wayIds[i]),
-            places.at(-1)!.id,
-          ]);
-        }
+  // 2️⃣ optimizeTrigger 처리 (trigger가 true → false 될 때만)
+  useEffect(() => {
+    if (optimizeTrigger && mapRef.current && coords.length > 0) {
+      mapRef.current.fitBounds(new LatLngBounds(coords), {
+        padding: [40, 40],
+      });
+      onOptimizeHandled();
+    }
+  }, [optimizeTrigger, mapRef, coords, onOptimizeHandled]);
 
-        onOptimizeHandled();
-      })
-      .catch(e => { console.error(e); onOptimizeHandled(); });
-
-    return () => { alive = false; };
-  }, [places, pos, optimizeTrigger]);
-
-  return coords.length ? <Polyline positions={coords} /> : null;
+  return coords.length > 0 ? <Polyline positions={coords} /> : null;
 }
+
+export default React.memo(RoutePolyline);

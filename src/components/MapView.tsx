@@ -1,22 +1,19 @@
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef } from "react";
 import { usePlaces, type Place } from "../hooks/usePlaces";
 import { useGeo } from "../hooks/useGeo";
 import RoutePolyline from "./RoutePolyline";
 
-const DEFAULT_CENTER: [number, number] = [49.25, -123.1];
+const DEFAULT_CENTER = [49.25, -123.1] as [number, number];
 const DEFAULT_ZOOM = 12;
 
-/* 둥근 숫자 아이콘 (흰 박스 제거) */
-function numIcon(idx: number) {
+function createNumberedIcon(index: number) {
   return L.divIcon({
-    className: "",
-    html: `<div style="
-      background:#1976d2;color:#fff;border-radius:50%;
-      width:32px;height:32px;display:flex;align-items:center;
-      justify-content:center;font-weight:bold;">${idx + 1}</div>`,
+    className: "custom-icon",
+    html: `<div style='background:#1976d2;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-weight:bold;'>${index +
+      1}</div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 32],
   });
@@ -29,59 +26,90 @@ interface Props {
     summary: string;
     distance: string;
     duration: string;
+    waypointOrder?: number[];
   }) => void;
+  onOptimizeHandled: () => void;
 }
 
 export default function MapView({
   optimizeTrigger,
   setOptimizeTrigger,
   onRouteInfo,
+  onOptimizeHandled,
 }: Props) {
   const { places, routePlaces } = usePlaces();
   const pos = useGeo();
+  const [posState, setPosState] = useState<[number, number] | undefined>(pos);
   const mapRef = useRef<L.Map | null>(null);
 
-  /* 순서 변경 시(드래그) 거리/시간만 재계산 */
+  /* 지오로케이션 */
   useEffect(() => {
-    if (routePlaces.length >= 2) setOptimizeTrigger(false);
-  }, [routePlaces, setOptimizeTrigger]);
+    navigator.geolocation.getCurrentPosition(
+      (p) => setPosState([p.coords.latitude, p.coords.longitude]),
+      (err) => console.error("Geolocation error:", err)
+    );
+  }, []);
 
-  /* 최초 한 번 GPS 위치로 맞춤 */
+  /* 최신 pos 반영 */
   useEffect(() => {
-    if (pos && mapRef.current) {
-      mapRef.current.setView(pos, mapRef.current.getZoom());
-    }
+    if (pos) setPosState(pos);
   }, [pos]);
 
-  const routeFiltered: Place[] = routePlaces
-    .map((id) => places.find((p) => p.id === id))
-    .filter((p): p is Place => !!p);
+  /* Route 리스트(Place[]) */
+  const routeList = useMemo(
+    () =>
+      routePlaces
+        .map((id) => places.find((p) => p.id === id))
+        .filter((p): p is Place => !!p),
+    [places, routePlaces]
+  );
+
+  const handleRouteInfo = useCallback(
+    (info: {
+      summary: string;
+      distance: string;
+      duration: string;
+      waypointOrder?: number[];
+    }) => {
+      onRouteInfo(info);
+    },
+    [onRouteInfo]
+  );
+
+  const handleOptimizeHandled = useCallback(() => {
+    onOptimizeHandled();
+  }, [onOptimizeHandled]);
 
   return (
     <div className="flex-1 relative">
       <MapContainer
-        center={pos ?? DEFAULT_CENTER}
+        whenCreated={(map) => (mapRef.current = map)}
+        center={posState ?? DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
-        whenCreated={(m) => (mapRef.current = m)}
         className="absolute inset-0"
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
         <RoutePolyline
-          places={routeFiltered}
+          places={routeList}
           optimizeTrigger={optimizeTrigger}
-          onOptimizeHandled={() => setOptimizeTrigger(false)}
-          onRouteInfo={onRouteInfo}
+          onOptimizeHandled={handleOptimizeHandled}
+          onRouteInfo={handleRouteInfo}
           mapRef={mapRef}
         />
 
-        {routeFiltered.map((pl, i) => (
-          <Marker key={pl.id} position={[pl.lat, pl.lon]} icon={numIcon(i)}>
-            <Popup>{pl.addr}</Popup>
+        {routeList.map((place, idx) => (
+          <Marker
+            key={place.id}
+            position={[place.lat, place.lon]}
+            icon={createNumberedIcon(idx)}
+          >
+            <Popup>{place.addr}</Popup>
           </Marker>
         ))}
-        {pos && (
-          <Marker position={pos}>
+
+        {posState && (
+          <Marker position={posState}>
             <Popup>현재 위치</Popup>
           </Marker>
         )}

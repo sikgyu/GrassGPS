@@ -1,3 +1,5 @@
+// src/hooks/usePlaces.ts
+
 import Papa from "papaparse";
 import axios from "axios";
 import { create } from "zustand";
@@ -16,7 +18,7 @@ export interface Place {
 
 interface Store {
   places: Place[];
-  routePlaces: string[];  // IDs of places included in the route
+  routePlaces: string[];           // IDs of places included in the route
   routeOptions: RouteOptions;
   setRouteOptions: (options: Partial<RouteOptions>) => void;
   loadCsv: (text: string) => Promise<void>;
@@ -26,7 +28,7 @@ interface Store {
   toggleStop: (id: string) => void;
   clearStops: () => void;
   reorderPlaces: (newOrder: Place[]) => void;
-  // New functions for route management
+  // Route 관리용
   addToRoute: (id: string) => void;
   removeFromRoute: (id: string) => void;
   reorderRoute: (newOrder: string[]) => void;
@@ -36,6 +38,7 @@ interface Store {
 const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
+/** 문자열 주소를 구글 Geocoding API로 위경도 변환 */
 async function geocodeAddress(line: string): Promise<Place> {
   const cacheKey = "geo:" + line;
   const cached = localStorage.getItem(cacheKey);
@@ -54,7 +57,7 @@ async function geocodeAddress(line: string): Promise<Place> {
         lon: 0,
         visited: false,
         photos: [],
-        geocodeFailed: true
+        geocodeFailed: true,
       };
     }
     const p: Place = {
@@ -76,11 +79,12 @@ async function geocodeAddress(line: string): Promise<Place> {
       lon: 0,
       visited: false,
       photos: [],
-      geocodeFailed: true
+      geocodeFailed: true,
     };
   }
 }
 
+/** 주소 문자열의 두 번째 컴마 뒤 지역명을 뽑아 알파벳 순 정렬에 사용 */
 function extractRegion(addr: string) {
   const parts = addr.split(",");
   return parts[1]?.trim().toLowerCase() || "";
@@ -90,24 +94,26 @@ export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
       places: [],
-      routePlaces: [],  // Initialize empty route
+      routePlaces: [],
       routeOptions: {
-        startPoint: 'current',
-        endPoint: 'start',
+        startPoint: "current",
+        endPoint: "start",
         skipIds: [],
-        scenario: 'nearest'
+        scenario: "nearest",
       },
-      setRouteOptions: (options) => 
+
+      setRouteOptions: (options) =>
         set((state) => ({
-          routeOptions: { ...state.routeOptions, ...options }
+          routeOptions: { ...state.routeOptions, ...options },
         })),
 
+      /** CSV 혹은 개행 구분 텍스트 로드 (앱 최초 자동 호출됨) */
       async loadCsv(text) {
         const rows = Papa.parse<string[]>(text, { skipEmptyLines: true }).data;
         const addrs = rows.map((r) => r[0]?.trim()).filter(Boolean);
         const newPlaces = await Promise.all(
           addrs.map(async (line) => {
-            /* lat,lon,title 형식인지 확인 */
+            // 이미 "lat,lon,title" 형식일 수도
             const parts = line.split(",");
             const n1 = parseFloat(parts[0]);
             const n2 = parseFloat(parts[1]);
@@ -125,27 +131,27 @@ export const usePlaces = create<Store>()(
           })
         );
         // 지역명 기준 알파벳 정렬
-        newPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
-        set({ places: newPlaces.filter(Boolean) });
+        newPlaces.sort((a, b) =>
+          extractRegion(a.addr).localeCompare(extractRegion(b.addr))
+        );
+        set({ places: newPlaces });
       },
 
+      /** 수동 추가(Address list textarea용) */
       async addAddresses(text) {
         const lines = text
-          .split('\n')
-          .map(line => line.trim().replace(/^"|"$/g, ''))  // Remove quotes at start/end
+          .split("\n")
+          .map((l) => l.trim().replace(/^"|"$/g, ""))
           .filter(Boolean);
-        
-        // Filter out addresses that already exist
-        const existingAddrs = new Set(get().places.map(p => p.addr));
-        const newLines = lines.filter(line => !existingAddrs.has(line));
-        
-        if (newLines.length === 0) return;  // No new addresses to add
-        
+        const existing = new Set(get().places.map((p) => p.addr));
+        const newLines = lines.filter((l) => !existing.has(l));
+        if (newLines.length === 0) return;
         const newPlaces = await Promise.all(newLines.map(geocodeAddress));
-        // 지역명 기준 알파벳 정렬
-        const allPlaces = [...get().places, ...newPlaces];
-        allPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
-        set(() => ({ places: allPlaces }));
+        const all = [...get().places, ...newPlaces];
+        all.sort((a, b) =>
+          extractRegion(a.addr).localeCompare(extractRegion(b.addr))
+        );
+        set({ places: all });
       },
 
       toggleVisited: (id) =>
@@ -176,35 +182,33 @@ export const usePlaces = create<Store>()(
 
       reorderPlaces: (newOrder) => set({ places: newOrder }),
 
-      // New route management functions
-      addToRoute: (id) => 
-        set((state) => ({
-          routePlaces: [...state.routePlaces, id]
-        })),
+      // ---- Route 관리 함수들 ----
+      addToRoute: (id) =>
+        set((state) => ({ routePlaces: [...state.routePlaces, id] })),
 
       removeFromRoute: (id) =>
         set((state) => ({
-          routePlaces: state.routePlaces.filter(placeId => placeId !== id)
+          routePlaces: state.routePlaces.filter((pid) => pid !== id),
         })),
 
       reorderRoute: (newOrder) =>
-        set((state) => {
-          // 새로운 순서의 ID 배열로 routePlaces 업데이트
-          return { routePlaces: newOrder };
-        }),
+        set(() => ({ routePlaces: newOrder })),
 
-      clearRoute: () =>
-        set({ routePlaces: [] }),
+      clearRoute: () => set({ routePlaces: [] }),
     }),
     { name: "grassgps" }
   )
 );
 
-/* 앱 시작 시 CSV 자동 로드 */
-(async () => {
-  const res = await fetch("/addresses.csv");
-  if (res.ok) {
-    const text = await res.text();
-    await usePlaces.getState().loadCsv(text);
+/** 앱 시작 시 public/addresses.csv 자동 로드 */
+;(async () => {
+  try {
+    const res = await fetch("/addresses.csv");
+    if (res.ok) {
+      const text = await res.text();
+      await usePlaces.getState().loadCsv(text);
+    }
+  } catch (e) {
+    console.warn("초기 CSV 로드 실패:", e);
   }
 })();
