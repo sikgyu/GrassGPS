@@ -3,10 +3,11 @@ import React from "react";
 import { Polyline } from "react-leaflet";
 import { LatLngBounds } from "leaflet";
 import { useGeo } from "../hooks/useGeo";
-import { usePlaces } from "../hooks/usePlaces";
+import { usePlaces, type Place } from "../hooks/usePlaces";
+import { optimizeRoute } from "../utils/routeOptimizer";
 
 interface Props {
-  places: { id: string; lat: number; lon: number }[];
+  places: Place[];
   optimizeTrigger: boolean;
   onOptimizeHandled: () => void;
   onRouteInfo: (info: {
@@ -26,7 +27,7 @@ function RoutePolyline({
   mapRef,
 }: Props) {
   const pos = useGeo();
-  const { reorderRoute } = usePlaces();
+  const { reorderRoute, routeOptions } = usePlaces();
   const [coords, setCoords] = useState<[number, number][]>([]);
 
   // 1️⃣ 경로/거리 계산 (places 변화에만 반응)
@@ -59,15 +60,27 @@ function RoutePolyline({
     });
   }, [places, pos, onRouteInfo]);
 
-  // 2️⃣ optimizeTrigger 처리 (trigger가 true → false 될 때만)
+  // 2️⃣ optimizeTrigger 처리
   useEffect(() => {
-    if (optimizeTrigger && mapRef.current && coords.length > 0) {
-      mapRef.current.fitBounds(new LatLngBounds(coords), {
-        padding: [40, 40],
-      });
-      onOptimizeHandled();
+    if (!optimizeTrigger || !mapRef.current || coords.length === 0) return;
+
+    // 경로 최적화
+    const optimizedPlaces = optimizeRoute(places, routeOptions, pos);
+    const optimizedIds = optimizedPlaces.map(p => p.id);
+    
+    // 최적화된 경로가 현재 경로와 다른 경우에만 적용
+    if (JSON.stringify(optimizedIds) !== JSON.stringify(places.map(p => p.id))) {
+      reorderRoute(optimizedIds);
     }
-  }, [optimizeTrigger, mapRef, coords, onOptimizeHandled]);
+
+    // 지도 범위 조정
+    mapRef.current.fitBounds(new LatLngBounds(coords), {
+      padding: [40, 40],
+    });
+
+    // 최적화 완료 처리
+    onOptimizeHandled();
+  }, [optimizeTrigger, mapRef, coords, onOptimizeHandled, places, routeOptions, pos, reorderRoute]);
 
   return coords.length > 0 ? <Polyline positions={coords} /> : null;
 }

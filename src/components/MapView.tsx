@@ -39,7 +39,7 @@ export default function MapView({
 }: Props) {
   const { places, routePlaces } = usePlaces();
   const pos = useGeo();
-  const [posState, setPosState] = useState<[number, number] | undefined>(pos);
+  const [posState, setPosState] = useState<[number, number]>(DEFAULT_CENTER);
   const mapRef = useRef<L.Map | null>(null);
 
   /* 지오로케이션 */
@@ -59,7 +59,7 @@ export default function MapView({
   const routeList = useMemo(
     () =>
       routePlaces
-        .map((id) => places.find((p) => p.id === id))
+        .map((id: string) => places.find((p: Place) => p.id === id))
         .filter((p): p is Place => !!p),
     [places, routePlaces]
   );
@@ -83,8 +83,8 @@ export default function MapView({
   return (
     <div className="flex-1 relative">
       <MapContainer
-        whenCreated={(map) => (mapRef.current = map)}
-        center={posState ?? DEFAULT_CENTER}
+        ref={mapRef}
+        center={posState}
         zoom={DEFAULT_ZOOM}
         className="absolute inset-0"
       >
@@ -98,7 +98,7 @@ export default function MapView({
           mapRef={mapRef}
         />
 
-        {routeList.map((place, idx) => (
+        {routeList.map((place: Place, idx: number) => (
           <Marker
             key={place.id}
             position={[place.lat, place.lon]}

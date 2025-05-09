@@ -1,7 +1,6 @@
 // src/hooks/usePlaces.ts
 
 import Papa from "papaparse";
-import axios from "axios";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { RouteOptions } from "../types";
@@ -35,38 +34,39 @@ interface Store {
   clearRoute: () => void;
 }
 
-const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
-/** 문자열 주소를 구글 Geocoding API로 위경도 변환 */
+/** 문자열 주소를 위경도로 변환 */
 async function geocodeAddress(line: string): Promise<Place> {
   const cacheKey = "geo:" + line;
   const cached = localStorage.getItem(cacheKey);
   if (cached) return JSON.parse(cached);
 
   try {
-    const { data } = await axios.get(GOOGLE_GEOCODE, {
-      params: { address: line, key: API_KEY },
-    });
-    if (!data.results[0]) {
-      console.warn("❗️ geocode fail:", line);
-      return {
+    // 주소 형식이 "lat,lon,title"인 경우
+    const parts = line.split(",");
+    const n1 = parseFloat(parts[0]);
+    const n2 = parseFloat(parts[1]);
+    if (!isNaN(n1) && !isNaN(n2) && parts.length >= 3) {
+      const p: Place = {
         id: crypto.randomUUID(),
-        addr: line,
-        lat: 0,
-        lon: 0,
+        addr: parts.slice(2).join(",").trim(),
+        lat: n1,
+        lon: n2,
         visited: false,
         photos: [],
-        geocodeFailed: true,
       };
+      localStorage.setItem(cacheKey, JSON.stringify(p));
+      return p;
     }
+
+    // 일반 주소인 경우 기본값 반환
     const p: Place = {
       id: crypto.randomUUID(),
       addr: line,
-      lat: data.results[0].geometry.location.lat,
-      lon: data.results[0].geometry.location.lng,
+      lat: 0,
+      lon: 0,
       visited: false,
       photos: [],
+      geocodeFailed: true,
     };
     localStorage.setItem(cacheKey, JSON.stringify(p));
     return p;
