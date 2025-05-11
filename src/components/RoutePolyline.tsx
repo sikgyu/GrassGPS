@@ -4,7 +4,6 @@ import { Polyline } from "react-leaflet";
 import { LatLngBounds } from "leaflet";
 import { useGeo } from "../hooks/useGeo";
 import { usePlaces, type Place } from "../hooks/usePlaces";
-import { optimizeRoute } from "../utils/routeOptimizer";
 
 interface Props {
   places: Place[];
@@ -32,7 +31,10 @@ function RoutePolyline({
 
   // 1️⃣ 경로/거리 계산 (places 변화에만 반응)
   useEffect(() => {
-    if (!pos || places.length < 2) return;
+    if (!pos || places.length < 2) {
+      setCoords([]);
+      return;
+    }
 
     // Calculate route using Local TSP
     const route = places.map(p => [p.lat, p.lon] as [number, number]);

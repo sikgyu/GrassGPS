@@ -5,8 +5,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import pThrottle from "p-throttle";
 import { RouteOptions } from "../types";
-import { sleep } from "../utils/sleep";
-
 
 const ORS_KEY = import.meta.env.VITE_ORS_KEY as string;
 
@@ -46,18 +44,22 @@ const throttle = pThrottle({ limit: 2, interval: 1000 });
 
 /** 주소 → 위·경도 (ORS Geocode) */
 async function geocodeOnce(line: string): Promise<Place> {
-  const url = `/api/geocode?q=${encodeURIComponent(line)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("ORS geocode HTTP " + res.status);
-  const json = (await res.json()) as any;
+  const KEY = import.meta.env.VITE_LOC_KEY;
+  const url =
+    `https://us1.locationiq.com/v1/search?key=${KEY}` +
+    `&q=${encodeURIComponent(line)}&format=json&limit=1`;
 
-  if (json.features?.length) {
-    const [lon, lat] = json.features[0].geometry.coordinates as [number, number];
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("LocIQ HTTP " + res.status);
+  const data = (await res.json()) as any[];
+
+  if (data.length) {
+    const { lat, lon, display_name } = data[0];
     return {
       id: crypto.randomUUID(),
-      addr: json.features[0].properties.label as string,
-      lat,
-      lon,
+      addr: display_name,
+      lat: +lat,
+      lon: +lon,
       visited: false,
       photos: [],
     };
@@ -201,14 +203,14 @@ export const usePlaces = create<Store>()(
 );
 
 /** 앱 시작 시 public/addresses.csv 자동 로드 */
-(async () => {
-  try {
-    const res = await fetch("/addresses.csv");
-    if (res.ok) {
-      const text = await res.text();
-      await usePlaces.getState().loadCsv(text);
-    }
-  } catch (e) {
-    console.warn("초기 CSV 로드 실패:", e);
-  }
-})();
+// (async () => {
+//   try {
+//     const res = await fetch("/addresses.csv");
+//     if (res.ok) {
+//       const text = await res.text();
+//       await usePlaces.getState().loadCsv(text);
+//     }
+//   } catch (e) {
+//     console.warn("초기 CSV 로드 실패:", e);
+//   }
+// })();
