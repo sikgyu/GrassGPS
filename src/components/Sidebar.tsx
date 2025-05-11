@@ -1,3 +1,5 @@
+// src/components/Sidebar.tsx – with English buttons, address count & region filter
+
 import { useState, useCallback, useMemo, ReactNode } from "react";
 import {
   DragDropContext,
@@ -5,10 +7,12 @@ import {
   Draggable,
   DropResult,
 } from "@hello-pangea/dnd";
-import { usePlaces, Place } from "../hooks/usePlaces";
+import { usePlaces, type Place } from "../hooks/usePlaces";
 import { useGeo } from "../hooks/useGeo";
 import { haversine } from "../utils/haversine";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
+/* ───────────────────────────────────────────────────────────── */
 type Tab = "places" | "route";
 
 interface RouteInfo {
@@ -25,6 +29,48 @@ interface Props {
   routeInfo: RouteInfo;
 }
 
+/* ───────────────────────────── utils & constants ─────────────────────────── */
+const CITY_WHITELIST = [
+  "All",
+  "Vancouver",
+  "North Vancouver",      
+  "Burnaby",
+  "New Westminster",
+  "Coquitlam",
+  "Langley",
+  "Surrey",
+  "Richmond",
+];
+
+const CITY_ALIASES: Record<string, string> = {
+  "District of North Vancouver": "North Vancouver",
+  "City of North Vancouver": "North Vancouver",
+};
+
+function cityOf(addr: string) {
+  const tok = addr
+    .split(",")
+    .map((t) => t.trim())
+    .map((t) => CITY_ALIASES[t] ?? t) // ⭐ 매핑된 값으로 교체
+    .find((t) =>
+      CITY_WHITELIST.some((c) => c.toLowerCase() === t.toLowerCase())
+    );
+  return tok ?? "Other";
+}
+
+function shortAddr(addr: string) {
+  // “Metro Vancouver Regional District” 이후는 잘라 버림
+  const cut = addr.split(/,\s*Metro Vancouver/i)[0];
+  return cut;
+}
+
+// region 은 곧 ‘큰 도시’
+function regionOf(addr: string) {
+  return cityOf(addr);                           // ⭐
+}
+
+
+/* ───────────────────────────────────────────────────────────── */
 export function Sidebar({
   open,
   optimizeTrigger,
@@ -39,10 +85,11 @@ export function Sidebar({
     removeFromRoute,
     reorderRoute,
   } = usePlaces();
+
   const pos = useGeo();
   const [tab, setTab] = useState<Tab>("places");
 
-  /* 1) Drag & Drop 순서 변경 */
+  /* ───── Drag & Drop ───── */
   const onDragEnd = useCallback(
     (r: DropResult) => {
       if (!r.destination) return;
@@ -61,11 +108,29 @@ export function Sidebar({
     [places, routePlaces, reorderPlaces, reorderRoute]
   );
 
-  /* 2) 메모화된 리스트 */
-  const filteredPlaces = useMemo(
-    () => places.filter((p) => p.id && !p.geocodeFailed),
-    [places]
-  );
+  /* ───── Region filter state ───── */
+  const allRegions = useMemo(() => {
+    const s = new Set<string>();
+    places.forEach((p) => s.add(regionOf(p.addr))); // ⭐ ‘큰 도시’ 기준
+    return Array.from(s).sort();
+  }, [places]);
+
+  const [openDropdown, setOpenDropdown] = useState(false);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]); // empty ⇒ show all
+
+  const toggleRegion = (rg: string) => {
+    setSelectedRegions((cur) =>
+      cur.includes(rg) ? cur.filter((x) => x !== rg) : [...cur, rg]
+    );
+  };
+
+  /* ───── Filtered lists ───── */
+  const filteredPlaces = useMemo(() => {
+    const base = places.filter((p) => p.id && !p.geocodeFailed);
+    if (selectedRegions.length === 0) return base;
+    return base.filter((p) => selectedRegions.includes(regionOf(p.addr)));
+  }, [places, selectedRegions]);
+
   const routeList = useMemo(
     () =>
       routePlaces
@@ -74,16 +139,16 @@ export function Sidebar({
     [places, routePlaces]
   );
 
-  /* 3) 버튼 동작 */
+  /* ───── Select / Deselect buttons ───── */
   const selectAll = () =>
     filteredPlaces
       .filter((p) => !routePlaces.includes(p.id))
       .forEach((p) => addToRoute(p.id));
   const deselectAll = () => routePlaces.forEach((id) => removeFromRoute(id));
 
-  /* 4) Local TSP: Cheapest‑Insertion */
+  /* ───── Local TSP (unchanged) ───── */
   const optimizeLocal = () => {
-    if (!pos) return alert("현재 위치를 가져올 수 없습니다.");
+    if (!pos) return alert("Current location unavailable");
     const [homeLat, homeLon] = pos;
     const home: Place = {
       id: "__HOME__",
@@ -121,22 +186,18 @@ export function Sidebar({
 
     reorderRoute(tour.slice(1, -1).map((p) => p.id));
   };
+  const onOptimizeClick = () => optimizeLocal();
 
-  /* 5) Optimize 클릭 */
-  const onOptimizeClick = () => {
-    optimizeLocal();
-  };
-
+  /* ───── UI ───── */
   return (
     <aside
-      className={`
-        flex flex-col bg-gray-50 shrink-0 overflow-hidden
-        transition-all duration-300 ${open ? "w-96" : "w-0"}
-      `}
+      className={`flex flex-col bg-gray-50 shrink-0 overflow-hidden transition-all duration-300 ${
+        open ? "w-96" : "w-0"
+      }`}
     >
       {open && (
         <>
-          {/* 탭 */}
+          {/* ── Tabs ── */}
           <div className="flex border-b">
             <TabBtn act={tab} me="places" setAct={setTab}>
               Places
@@ -146,29 +207,85 @@ export function Sidebar({
             </TabBtn>
           </div>
 
-          {/* 콘텐츠 */}
+          {/* ── Content ── */}
           <div className="flex-1 overflow-y-auto p-2">
             <DragDropContext onDragEnd={onDragEnd}>
               {tab === "places" ? (
                 <>
-                  {/* — Places 탭 — */}
-                  <div className="flex gap-2 mb-4">
-                    <button
-                      onClick={selectAll}
-                      disabled={filteredPlaces.length === routePlaces.length}
-                      className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
-                    >
-                      모두 선택
-                    </button>
-                    <button
-                      onClick={deselectAll}
-                      disabled={routePlaces.length === 0}
-                      className="flex-1 py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm"
-                    >
-                      모두 해제
-                    </button>
+                  {/* --- Toolbar --- */}
+                  <div className="flex flex-col gap-2 mb-4">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={selectAll}
+                        disabled={filteredPlaces.length === routePlaces.length}
+                        className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={deselectAll}
+                        disabled={routePlaces.length === 0}
+                        className="flex-1 py-2 px-4 bg-gray-500 hover:bg-gray-600 text-white rounded text-sm"
+                      >
+                        Deselect All
+                      </button>
+                    </div>
+                    {/* Region dropdown */}
+                    <div className="relative">
+                      <button
+                        className="w-full bg-white border rounded flex items-center justify-between px-3 py-2 text-sm"
+                        onClick={() => setOpenDropdown(!openDropdown)}
+                      >
+                        {selectedRegions.length === 0
+                          ? "All regions"
+                          : `${selectedRegions.length} selected`}
+                        {openDropdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                      {openDropdown && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border rounded shadow">
+                          
+                          {/* All regions option */}
+                          <label
+                            className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer font-semibold"
+                            onClick={() => setSelectedRegions([])}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedRegions.length === 0}
+                              readOnly
+                            />
+                            All regions
+                          </label>
+
+                          {/* Region list */}
+                          {allRegions.map((rg) => {
+                            const checked = selectedRegions.includes(rg);
+                            return (
+                              <label
+                                key={rg}
+                                className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleRegion(rg)}
+                                />
+                                {rg}
+                              </label>
+                            );
+                          })}
+
+                          <div className="py-1" />
+                        </div>
+                      )}
+                    </div>
+                    {/* Total count */}
+                    <div className="text-xs text-gray-600 px-1">
+                      Total addresses: {filteredPlaces.length}
+                    </div>
                   </div>
 
+                  {/* --- Draggable list --- */}
                   <Droppable droppableId="places" type="places">
                     {(prov) => (
                       <div
@@ -177,11 +294,7 @@ export function Sidebar({
                         className="space-y-2"
                       >
                         {filteredPlaces.map((pl, i) => (
-                          <Draggable
-                            key={pl.id}
-                            draggableId={pl.id}
-                            index={i}
-                          >
+                          <Draggable key={pl.id} draggableId={pl.id} index={i}>
                             {(drag, snap) => (
                               <Card
                                 d={drag}
@@ -201,8 +314,8 @@ export function Sidebar({
                   </Droppable>
                 </>
               ) : (
+                /* --- Route tab --- */
                 <>
-                  {/* — Route 탭 — */}
                   <div className="flex gap-2 mb-4">
                     <button
                       onClick={onOptimizeClick}
@@ -215,29 +328,21 @@ export function Sidebar({
 
                   <div className="bg-white p-4 mb-4 rounded shadow text-sm">
                     <div>
-                      <b>경로 요약:</b> {routeInfo.summary}
+                      <b>Summary:</b> {routeInfo.summary}
                     </div>
                     <div>
-                      <b>총 거리:</b> {routeInfo.distance}
+                      <b>Total distance:</b> {routeInfo.distance}
                     </div>
                     <div>
-                      <b>소요 시간:</b> {routeInfo.duration}
+                      <b>Duration:</b> {routeInfo.duration}
                     </div>
                   </div>
 
                   <Droppable droppableId="route" type="route">
                     {(prov) => (
-                      <div
-                        ref={prov.innerRef}
-                        {...prov.droppableProps}
-                        className="space-y-2"
-                      >
+                      <div ref={prov.innerRef} {...prov.droppableProps} className="space-y-2">
                         {routeList.map((pl, i) => (
-                          <Draggable
-                            key={pl.id}
-                            draggableId={pl.id}
-                            index={i}
-                          >
+                          <Draggable key={pl.id} draggableId={pl.id} index={i}>
                             {(drag, snap) => (
                               <Card
                                 d={drag}
@@ -264,82 +369,40 @@ export function Sidebar({
   );
 }
 
-function TabBtn({
-  act,
-  me,
-  setAct,
-  children,
-}: {
-  act: Tab;
-  me: Tab;
-  setAct: (t: Tab) => void;
-  children: ReactNode;
-}) {
+/* ───── Sub‑components ───── */
+function TabBtn({ act, me, setAct, children }: { act: Tab; me: Tab; setAct: (t: Tab) => void; children: ReactNode }) {
   const active = act === me;
   return (
     <button
       onClick={() => setAct(me)}
-      className={`flex-1 py-2 font-medium ${
-        active
-          ? "border-b-2 border-blue-500 text-blue-600"
-          : "text-gray-500 hover:text-gray-700"
-      }`}
+      className={`flex-1 py-2 font-medium ${active ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
     >
       {children}
     </button>
   );
 }
 
-function Card({
-  d,
-  s,
-  i,
-  place,
-  inRoute,
-  onAdd,
-  onRemove,
-}: {
-  d: any;
-  s: any;
-  i: number;
-  place: Place;
-  inRoute: boolean;
-  onAdd?: () => void;
-  onRemove: () => void;
-}) {
+function Card({ d, s, i, place, inRoute, onAdd, onRemove }: { d: any; s: any; i: number; place: Place; inRoute: boolean; onAdd?: () => void; onRemove: () => void }) {
   return (
     <div
       ref={d.innerRef}
       {...d.draggableProps}
       style={d.draggableProps.style}
-      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${
-        s.isDragging ? "shadow-lg ring-2 ring-blue-500" : ""
-      }`}
+      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${s.isDragging ? "shadow-lg ring-2 ring-blue-500" : ""}`}
     >
-      <div
-        {...d.dragHandleProps}
-        className={`flex-1 flex items-center gap-2 ${
-          s.isDragging ? "cursor-grabbing" : "cursor-grab"
-        }`}
-      >
+      <div {...d.dragHandleProps} className={`flex-1 flex items-center gap-2 ${s.isDragging ? "cursor-grabbing" : "cursor-grab"}`}>
         <span className="w-6 text-gray-500">{i + 1}.</span>
-        <span className="flex-1 text-sm">{place.addr}</span>
+        <span className="flex-1 text-sm whitespace-normal break-words">{shortAddr(place.addr)}</span>
       </div>
 
       {inRoute ? (
         <span className="text-green-500 font-bold px-2">✓</span>
       ) : (
-        <button
-          onClick={onAdd}
-          className="text-gray-400 hover:text-green-500 px-2"
-        >
+        <button onClick={onAdd} className="text-gray-400 hover:text-green-500 px-2">
           +
         </button>
       )}
-      <button
-        onClick={onRemove}
-        className="text-gray-400 hover:text-red-500 px-2"
-      >
+      <button onClick={onRemove} className="text-gray-400 hover:text-red-500 px-2">
         ×
       </button>
     </div>
