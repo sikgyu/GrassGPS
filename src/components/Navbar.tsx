@@ -1,3 +1,5 @@
+// src/components/Navbar.tsx
+
 import { useState } from "react";
 import Modal from "./Modal";
 import { usePlaces } from "../hooks/usePlaces";
@@ -8,29 +10,43 @@ interface Props {
 
 export default function Navbar({ onMenuClick }: Props) {
   const [mode, setMode] = useState<null | "import" | "add">(null);
-  const [text, setText]   = useState("");
-  const loadCsv           = usePlaces((s) => s.loadCsv);
-  const addAddresses      = usePlaces((s) => s.addAddresses);
+  const [text, setText] = useState("");
+
+  const loadCsv = usePlaces((s) => s.loadCsv);
+  const addAddresses = usePlaces((s) => s.addAddresses);
 
   const save = async () => {
-    if (mode === "import") await loadCsv(text);
-    else if (mode === "add") await addAddresses(text);
-    setText(""); setMode(null);
+    if (mode === "import") {
+      await loadCsv(text);
+    } else if (mode === "add") {
+      await addAddresses(text);
+    }
+    setText("");
+    setMode(null);
   };
 
   return (
     <header className="bg-green-600 text-white h-12 flex items-center px-3">
-      {/* 햄버거 */}
-      <button onClick={onMenuClick} className="text-2xl mr-3" aria-label="menu">
+      <button
+        onClick={onMenuClick}
+        className="text-2xl mr-3"
+        aria-label="menu"
+      >
         ≡
       </button>
 
       <h1 className="font-bold mr-auto select-none">GrassGPS</h1>
 
-      <button className="btn bg-white text-green-700" onClick={() => setMode("import")}>
+      <button
+        className="btn bg-white text-green-700"
+        onClick={() => setMode("import")}
+      >
         Import List
       </button>
-      <button className="btn bg-white text-green-700 ml-2" onClick={() => setMode("add")}>
+      <button
+        className="btn bg-white text-green-700 ml-2"
+        onClick={() => setMode("add")}
+      >
         Add Addr
       </button>
 
@@ -45,11 +61,15 @@ export default function Navbar({ onMenuClick }: Props) {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <button className="btn w-full" onClick={save} disabled={!text.trim()}>
+          <button
+            className="btn w-full"
+            onClick={save}
+            disabled={!text.trim()}
+          >
             Save
           </button>
         </Modal>
       )}
     </header>
-  );
+);
 }

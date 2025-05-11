@@ -1,118 +1,88 @@
-import { useEffect, useState } from "react";
-import { Polyline, Popup, useMap } from "react-leaflet";
+import { useEffect, useState, RefObject } from "react";
+import React from "react";
+import { Polyline } from "react-leaflet";
 import { LatLngBounds } from "leaflet";
-import { Place } from "../hooks/usePlaces";
-import { calculateRoute } from "../utils/googleMaps";
 import { useGeo } from "../hooks/useGeo";
+import { usePlaces, type Place } from "../hooks/usePlaces";
+import { optimizeRoute } from "../utils/routeOptimizer";
 
-interface RoutePolylineProps {
+interface Props {
   places: Place[];
   optimizeTrigger: boolean;
   onOptimizeHandled: () => void;
+  onRouteInfo: (info: {
+    summary: string;
+    distance: string;
+    duration: string;
+    waypointOrder?: number[];
+  }) => void;
+  mapRef: RefObject<L.Map | null>;
 }
 
-interface RouteInfo {
-  distance: string;
-  duration: string;
-  summary?: string;
-  steps?: string[];
-}
-
-/**
- * Draws a driving route connecting given places using Google Directions API.
- * - Fits the Leaflet map to the resulting bounds.
- * - Shows distance / duration popup at mid‑route.
- */
-export default function RoutePolyline({ places, optimizeTrigger, onOptimizeHandled }: RoutePolylineProps) {
-  const map = useMap();
+function RoutePolyline({
+  places,
+  optimizeTrigger,
+  onOptimizeHandled,
+  onRouteInfo,
+  mapRef,
+}: Props) {
   const pos = useGeo();
-  const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
-  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [showPopup, setShowPopup] = useState(false);
+  const { reorderRoute, routeOptions } = usePlaces();
+  const [coords, setCoords] = useState<[number, number][]>([]);
 
+  // 1️⃣ 경로/거리 계산 (places 변화에만 반응)
   useEffect(() => {
-    if (!optimizeTrigger) return;
-    let alive = true;
-    setShowPopup(false);
+    if (!pos || places.length < 2) return;
 
-    // 현재 위치 + 경유지 1개 이상 필요
-    if (!pos || places.length < 1) {
-      setRouteCoords([]);
-      setRouteInfo(null);
-      onOptimizeHandled();
-      return;
+    // Calculate route using Local TSP
+    const route = places.map(p => [p.lat, p.lon] as [number, number]);
+    setCoords(route);
+
+    // Calculate total distance
+    let totalDistance = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+      const [lat1, lon1] = route[i];
+      const [lat2, lon2] = route[i + 1];
+      const dx = lon2 - lon1;
+      const dy = lat2 - lat1;
+      totalDistance += Math.sqrt(dx * dx + dy * dy) * 111; // rough km conversion
     }
 
-    const origin = { lat: pos[0], lng: pos[1] };
-    const destination = { lat: places[places.length - 1].lat, lng: places[places.length - 1].lon };
-    const waypoints = places.slice(0, -1).map((p) => ({ lat: p.lat, lng: p.lon }));
+    // Estimate duration (assuming average speed of 30 km/h)
+    const duration = (totalDistance / 30) * 60; // in minutes
 
-    calculateRoute(origin, destination, waypoints, { trafficModel: 'best_guess' })
-      .then(({ res }) => {
-        if (!alive) return;
+    // Update route info
+    onRouteInfo({
+      summary: "Local TSP Route",
+      distance: totalDistance.toFixed(1) + " km",
+      duration: Math.round(duration) + " mins",
+      waypointOrder: places.map((_, i) => i),
+    });
+  }, [places, pos, onRouteInfo]);
 
-        const route = res.routes[0];
-        const path = route.overview_path;
-        const coords: [number, number][] = path.map((p: google.maps.LatLng) => [p.lat(), p.lng()]);
-        setRouteCoords(coords);
+  // 2️⃣ optimizeTrigger 처리
+  useEffect(() => {
+    if (!optimizeTrigger || !mapRef.current || coords.length === 0) return;
 
-        // 안내 정보
-        const leg = route.legs[0];
-        const summary = route.summary || '';
-        const steps = leg?.steps?.map((step: any) => step.instructions.replace(/<[^>]+>/g, '')) || [];
-        setRouteInfo({
-          distance: leg?.distance?.text ?? "Unknown",
-          duration: leg?.duration_in_traffic?.text ?? leg?.duration?.text ?? "Unknown",
-          summary,
-          steps
-        });
-        setShowPopup(true);
+    // 경로 최적화
+    const optimizedPlaces = optimizeRoute(places, routeOptions, pos);
+    const optimizedIds = optimizedPlaces.map(p => p.id);
+    
+    // 최적화된 경로가 현재 경로와 다른 경우에만 적용
+    if (JSON.stringify(optimizedIds) !== JSON.stringify(places.map(p => p.id))) {
+      reorderRoute(optimizedIds);
+    }
 
-        // 지도 화면 자동 맞춤
-        if (coords.length) {
-          map.fitBounds(new LatLngBounds(coords.map((c) => [c[0], c[1]])), {
-            padding: [40, 40]
-          });
-        }
-        onOptimizeHandled();
-      })
-      .catch((err) => {
-        if (!alive) return;
-        console.error("Error calculating route:", err);
-        setError(err.message || "경로 계산 오류");
-        setRouteCoords([]);
-        setRouteInfo(null);
-        onOptimizeHandled();
-      });
+    // 지도 범위 조정
+    mapRef.current.fitBounds(new LatLngBounds(coords), {
+      padding: [40, 40],
+    });
 
-    return () => {
-      alive = false;
-    };
-  }, [places, pos, map, optimizeTrigger, onOptimizeHandled]);
+    // 최적화 완료 처리
+    onOptimizeHandled();
+  }, [optimizeTrigger, mapRef, coords, onOptimizeHandled, places, routeOptions, pos, reorderRoute]);
 
-  if (error) return null;
-
-  return (
-    <>
-      {routeCoords.length > 0 && <Polyline positions={routeCoords} />}
-      {showPopup && routeInfo && routeCoords.length > 0 && (
-        <Popup position={routeCoords[Math.floor(routeCoords.length / 2)]}>
-          <div className="text-sm">
-            <div>경로 요약: {routeInfo.summary}</div>
-            <div>총 거리: {routeInfo.distance}</div>
-            <div>예상 소요 시간(실시간): {routeInfo.duration}</div>
-            {routeInfo.steps && routeInfo.steps.length > 0 && (
-              <ul className="mt-2 list-disc pl-4">
-                {routeInfo.steps.slice(0, 5).map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-                {routeInfo.steps.length > 5 && <li>...</li>}
-              </ul>
-            )}
-          </div>
-        </Popup>
-      )}
-    </>
-  );
+  return coords.length > 0 ? <Polyline positions={coords} /> : null;
 }
+
+export default React.memo(RoutePolyline);

@@ -1,7 +1,7 @@
 export type RouteOptions = {
-  startPoint: 'current' | string; // string은 place.id
-  endPoint: 'current' | 'start' | string;
-  mustVisitFirst?: string; // place.id
+  startPoint: "current" | string;
+  endPoint: "current" | "start" | string;
+  mustVisitFirst?: string;
   skipIds: string[];
-  scenario: 'nearest' | 'farthest' | 'roundTrip' | 'custom';
-}; 
+  scenario: "nearest" | "farthest" | "roundTrip" | "custom";
+};

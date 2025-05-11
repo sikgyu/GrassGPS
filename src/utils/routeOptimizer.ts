@@ -1,6 +1,6 @@
 import { Place } from "../hooks/usePlaces";
 import { RouteOptions } from "../types";
-import { haversine } from "../utils-haversine";
+import { haversine } from "./haversine";
 
 export function optimizeRoute(
   places: Place[],
@@ -11,7 +11,7 @@ export function optimizeRoute(
   let stops = places.filter(p => !options.skipIds.includes(p.id));
 
   // 2. 시작점 위치 구하기
-  const startPos = options.startPoint === 'current' 
+  const startPos = options.startPoint === "current" 
     ? currentPos 
     : stops.find(p => p.id === options.startPoint);
 
@@ -39,7 +39,7 @@ export function optimizeRoute(
     case 'roundTrip':
       stops = nearestNeighbor(stops, startPos);
       // 시작점이 Place인 경우에만 추가
-      if (typeof options.startPoint !== 'current') {
+      if (options.startPoint !== "current") {
         const start = stops.find(p => p.id === options.startPoint);
         if (start) stops.push(start);
       }
