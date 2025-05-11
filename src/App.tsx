@@ -50,3 +50,5 @@ export default function App() {
     </div>
   );
 }
+console.log("★TEST★")
+console.log("🧩 import.meta.env =", import.meta.env);
