@@ -1,16 +1,13 @@
 import { useState, useEffect } from "react";
 
-export function useGeo() {
-  const [pos, setPos] = useState<[number, number]>();
+export function useGeo(): [number, number] | null {
+  const [pos, setPos] = useState<[number, number] | null>(null);
 
   useEffect(() => {
-    const upd = () =>
-      navigator.geolocation.getCurrentPosition((p) =>
-        setPos([p.coords.latitude, p.coords.longitude])
-      );
-    upd();
-    const id = setInterval(upd, 300_000); // 5 분
-    return () => clearInterval(id);
+    navigator.geolocation.getCurrentPosition(
+      (p) => setPos([p.coords.latitude, p.coords.longitude]),
+      () => setPos(null)
+    );
   }, []);
 
   return pos;
