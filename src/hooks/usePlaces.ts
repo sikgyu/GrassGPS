@@ -10,7 +10,8 @@ const ORS_KEY = import.meta.env.VITE_ORS_KEY as string;
 
 export interface Place {
   id: string;
-  addr: string;
+  addr: string; // Display name or formatted address
+  rawAddr: string; // Original address input
   lat: number;
   lon: number;
   visited: boolean;
@@ -30,19 +31,17 @@ interface Store {
   toggleStop: (id: string) => void;
   clearStops: () => void;
   reorderPlaces: (newOrder: Place[]) => void;
-  // Route 관리용
   addToRoute: (id: string) => void;
   removeFromRoute: (id: string) => void;
   reorderRoute: (newOrder: string[]) => void;
   clearRoute: () => void;
-  /** openrouteservice TSP 최적화 */
   optimizeWithORS: (start: [number, number]) => Promise<void>;
 }
 
-/** 요청 속도 : ORS 무료 2 req/sec → limit 2 */
+/** 요청 속도 제한: ORS 무료 2 req/sec → limit 2 */
 const throttle = pThrottle({ limit: 2, interval: 1000 });
 
-/** 주소 → 위·경도 (ORS Geocode) */
+/** 주소 → 위·경도 (ORS Geocode) */
 async function geocodeOnce(line: string): Promise<Place> {
   const KEY = import.meta.env.VITE_LOC_KEY;
   const url =
@@ -57,7 +56,8 @@ async function geocodeOnce(line: string): Promise<Place> {
     const { lat, lon, display_name } = data[0];
     return {
       id: crypto.randomUUID(),
-      addr: display_name,
+      addr: display_name, // API's formatted address
+      rawAddr: line, // Original input address
       lat: +lat,
       lon: +lon,
       visited: false,
@@ -66,6 +66,7 @@ async function geocodeOnce(line: string): Promise<Place> {
   }
   throw new Error("geocode result empty");
 }
+
 // throttle 래핑
 const geocodeAddress = throttle(async (line: string): Promise<Place> => {
   const cacheKey = "geo:" + line;
@@ -77,10 +78,10 @@ const geocodeAddress = throttle(async (line: string): Promise<Place> => {
     localStorage.setItem(cacheKey, JSON.stringify(p));
     return p;
   } catch (e) {
-    console.warn("geocode 실패:", line, e);
     return {
       id: crypto.randomUUID(),
       addr: line,
+      rawAddr: line,
       lat: 0,
       lon: 0,
       visited: false,
@@ -90,7 +91,7 @@ const geocodeAddress = throttle(async (line: string): Promise<Place> => {
   }
 });
 
-/** 주소 문자열의 두 번째 컴마 뒤 지역명 추출(정렬용) */
+/** 주소 문자열의 두 번째 컴마 뒤 지역명 추출 (정렬용) */
 function extractRegion(addr: string) {
   const parts = addr.split(",");
   return parts[1]?.trim().toLowerCase() || "";
@@ -124,6 +125,7 @@ export const usePlaces = create<Store>()(
               return {
                 id: crypto.randomUUID(),
                 addr: parts.slice(2).join(",").trim(),
+                rawAddr: parts.slice(2).join(",").trim(),
                 lat: n1,
                 lon: n2,
                 visited: false,
@@ -143,10 +145,32 @@ export const usePlaces = create<Store>()(
           .split("\n")
           .map((l) => l.trim().replace(/^"|"$/g, ""))
           .filter(Boolean);
-        const existing = new Set(get().places.map((p) => p.addr));
+        const existing = new Set(get().places.map((p) => p.rawAddr)); // Compare using rawAddr
         const newLines = lines.filter((l) => !existing.has(l));
         if (newLines.length === 0) return;
-        const newPlaces = await Promise.all(newLines.map(geocodeAddress));
+
+        const newPlaces = await Promise.all(
+          newLines.map(async (line) => {
+            if (line.startsWith("geo:")) {
+              const parts = line.replace("geo:", "").split(",");
+              const lat = parseFloat(parts[0]);
+              const lon = parseFloat(parts[1]);
+              const rawAddr = parts.slice(2).join(",").trim();
+              return {
+                id: crypto.randomUUID(),
+                addr: rawAddr,
+                rawAddr,
+                lat,
+                lon,
+                visited: false,
+                photos: [],
+              };
+            }
+            const place = await geocodeAddress(line);
+            return { ...place, rawAddr: line };
+          })
+        );
+
         const all = [...get().places, ...newPlaces];
         all.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
         set({ places: all });
@@ -172,10 +196,9 @@ export const usePlaces = create<Store>()(
 
       /** ORS Optimization (TSP) */
       async optimizeWithORS(start) {
-        const routeList = get()
-          .routePlaces.map((id) => get().places.find((p) => p.id === id))
-          .filter((p): p is Place => !!p);
-        if (routeList.length < 2) return;
+        const routeList = get().routePlaces.map((id) =>
+          get().places.find((p) => p.id === id)
+        ).filter((p): p is Place => !!p);
 
         const body = {
           jobs: routeList.map((p, i) => ({ id: i + 1, location: [p.lon, p.lat] })),
