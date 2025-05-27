@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import Navbar from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import MapView from "./components/MapView";
-import PlaceDrawer from "./components/PlaceDrawer";
 import "./index.css";
 
 export default function App() {
@@ -45,7 +44,6 @@ export default function App() {
           onRouteInfo={handleRouteInfo}
           onOptimizeHandled={handleOptimizeHandled}
         />
-        <PlaceDrawer />
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import shadowUrl from "leaflet/dist/images/marker-shadow.png";
 import { usePlaces, type Place } from "../hooks/usePlaces";
 import { useGeo } from "../hooks/useGeo";
 import { haversine } from "../utils/haversine";
+import PlaceCard from "./PlaceCard";
 
 const DEFAULT_CENTER = [49.25, -123.1] as [number, number];
 const DEFAULT_ZOOM = 12;
@@ -52,12 +53,13 @@ export default function MapView({
   onRouteInfo,
   onOptimizeHandled,
 }: Props) {
-  const { places, routePlaces, addAddresses } = usePlaces();
+  const { places, routePlaces, addAddresses } = usePlaces(); 
   const geoHookPos = useGeo();
   const [posState, setPosState] = useState<[number, number]>(() => {
     const cached = localStorage.getItem("lastPos");
     return cached ? JSON.parse(cached) : DEFAULT_CENTER;
   });
+  const [selected, setSelected] = useState<Place | null>(null);
 
   const mapRef = useRef<L.Map | null>(null);
   const lastUpdate = useRef(0);
@@ -119,7 +121,7 @@ export default function MapView({
 
   const handleRouteInfo = useCallback(onRouteInfo, [onRouteInfo]);
   const handleOptimizeHandled = useCallback(onOptimizeHandled, [onOptimizeHandled]);
-
+  
   return (
     <div className="flex-1 relative">
       <MapContainer
@@ -131,15 +133,17 @@ export default function MapView({
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {routeList.map((place: Place, idx: number) => (
-          <Marker
-            key={place.id}
-            position={[place.lat, place.lon]}
-            icon={createNumberedIcon(idx)}
-          >
-            <Popup>{place.rawAddr || `주소를 불러올 수 없습니다. (ID: ${place.id})`}</Popup>
-          </Marker>
-        ))}
+        {routeList.map((place, idx) => (
+        <Marker
+          key={place.id}
+          position={[place.lat, place.lon]}
+          icon={createNumberedIcon(idx)}
+        >
+          <Popup minWidth={350} maxWidth={400} autoClose={false}>
+          <PlaceCard place={place} /> 
+          </Popup>
+        </Marker>
+      ))}
 
         <Marker position={posState}>
           <Popup>현재 위치</Popup>

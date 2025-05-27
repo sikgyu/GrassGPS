@@ -15,6 +15,7 @@ export interface Place {
   lat: number;
   lon: number;
   visited: boolean;
+  logs: [];
   photos: string[];
   geocodeFailed?: boolean;
 }
@@ -61,6 +62,7 @@ async function geocodeOnce(line: string): Promise<Place> {
       lat: +lat,
       lon: +lon,
       visited: false,
+      logs: [],
       photos: [],
     };
   }
@@ -85,6 +87,7 @@ const geocodeAddress = throttle(async (line: string): Promise<Place> => {
       lat: 0,
       lon: 0,
       visited: false,
+      logs: [],
       photos: [],
       geocodeFailed: true,
     };
@@ -129,6 +132,7 @@ export const usePlaces = create<Store>()(
                 lat: n1,
                 lon: n2,
                 visited: false,
+                logs: [],
                 photos: [],
               } as Place;
             }
@@ -163,6 +167,7 @@ export const usePlaces = create<Store>()(
                 lat,
                 lon,
                 visited: false,
+                logs: [],
                 photos: [],
               };
             }
@@ -193,6 +198,12 @@ export const usePlaces = create<Store>()(
       removeFromRoute: (id) => set((s) => ({ routePlaces: s.routePlaces.filter((pid) => pid !== id) })),
       reorderRoute: (newOrder) => set(() => ({ routePlaces: newOrder })),
       clearRoute: () => set({ routePlaces: [] }),
+
+      updatePlace: (updated: Place) =>
+        set((state) => ({
+          places: state.places.map((p) => (p.id === updated.id ? updated : p)),
+        })),
+        
 
       /** ORS Optimization (TSP) */
       async optimizeWithORS(start) {
