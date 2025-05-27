@@ -15,6 +15,7 @@ export interface Place {
   lat: number;
   lon: number;
   visited: boolean;
+  lastVisit?: string;
   logs: [];
   photos: string[];
   geocodeFailed?: boolean;

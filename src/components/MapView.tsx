@@ -8,6 +8,7 @@ import {
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { getPinColor } from "../utils/pinColor";
 
 import iconUrl from "leaflet/dist/images/marker-icon.png";
 import iconRetinaUrl from "leaflet/dist/images/marker-icon-2x.png";
@@ -26,10 +27,17 @@ const HOME_RADIUS_M = 300;
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({ iconUrl, iconRetinaUrl, shadowUrl });
 
-function createNumberedIcon(i: number) {
+/** 번호 + 배경색을 동시에 적용하는 아이콘 */
+function createNumberedColoredIcon(i: number, color: string) {
   return L.divIcon({
     className: "custom-icon",
-    html: `<div style='background:#1976d2;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-weight:bold;'>${i + 1}</div>`,
+    html: `<div style="
+      background:${color};
+      color:#fff;
+      border-radius:50%;
+      width:32px;height:32px;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:bold;">${i + 1}</div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 32],
   });
@@ -137,7 +145,7 @@ export default function MapView({
         <Marker
           key={place.id}
           position={[place.lat, place.lon]}
-          icon={createNumberedIcon(idx)}
+          icon={createNumberedColoredIcon(idx, getPinColor(place.lastVisit))}
         >
           <Popup minWidth={350} maxWidth={400} autoClose={false}>
           <PlaceCard place={place} /> 
