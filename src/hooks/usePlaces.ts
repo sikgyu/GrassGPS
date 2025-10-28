@@ -1,106 +1,156 @@
-// src/hooks/usePlaces.ts (ORS 단일 API 버전)
+// src/hooks/usePlaces.ts — CSV 전용(지오코딩 제거) + hydration 후 자동 로드
 
 import Papa from "papaparse";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import pThrottle from "p-throttle";
 import { RouteOptions } from "../types";
-
-const ORS_KEY = import.meta.env.VITE_ORS_KEY as string;
 
 export interface Place {
   id: string;
-  addr: string; // Display name or formatted address
-  rawAddr: string; // Original address input
+  addr: string;      // 표시용 주소
+  rawAddr: string;   // 원본 입력(중복 체크용)
   lat: number;
   lon: number;
+  lng?: number;      // 호환용(lon 복사)
   visited: boolean;
   lastVisit?: string;
   logs: [];
   photos: string[];
-  geocodeFailed?: boolean;
+  geocodeFailed?: boolean; // 좌표 없을 때 true
 }
 
 interface Store {
   places: Place[];
-  routePlaces: string[]; // IDs of places included in the route
+  routePlaces: string[];
   routeOptions: RouteOptions;
+
   setRouteOptions: (options: Partial<RouteOptions>) => void;
-  loadCsv: (text: string) => Promise<void>;
-  addAddresses: (text: string) => Promise<void>;
+
+  loadCsv: (text: string) => Promise<void>;     // 덮어쓰기
+  addAddresses: (text: string) => Promise<void>; // 병합
+
   toggleVisited: (id: string) => void;
   addPhoto: (id: string, url: string) => void;
   toggleStop: (id: string) => void;
   clearStops: () => void;
   reorderPlaces: (newOrder: Place[]) => void;
+
   addToRoute: (id: string) => void;
   removeFromRoute: (id: string) => void;
   reorderRoute: (newOrder: string[]) => void;
   clearRoute: () => void;
+
+  updatePlace: (updated: Place) => void;
+
   optimizeWithORS: (start: [number, number]) => Promise<void>;
 }
 
-/** 요청 속도 제한: ORS 무료 2 req/sec → limit 2 */
-const throttle = pThrottle({ limit: 2, interval: 1000 });
-
-/** 주소 → 위·경도 (ORS Geocode) */
-async function geocodeOnce(line: string): Promise<Place> {
-  const KEY = import.meta.env.VITE_LOC_KEY;
-  const url =
-    `https://us1.locationiq.com/v1/search?key=${KEY}` +
-    `&q=${encodeURIComponent(line)}&format=json&limit=1`;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("LocIQ HTTP " + res.status);
-  const data = (await res.json()) as any[];
-
-  if (data.length) {
-    const { lat, lon, display_name } = data[0];
-    return {
-      id: crypto.randomUUID(),
-      addr: display_name, // API's formatted address
-      rawAddr: line, // Original input address
-      lat: +lat,
-      lon: +lon,
-      visited: false,
-      logs: [],
-      photos: [],
-    };
-  }
-  throw new Error("geocode result empty");
-}
-
-// throttle 래핑
-const geocodeAddress = throttle(async (line: string): Promise<Place> => {
-  const cacheKey = "geo:" + line;
-  const cached = localStorage.getItem(cacheKey);
-  if (cached) return JSON.parse(cached);
-
-  try {
-    const p = await geocodeOnce(line);
-    localStorage.setItem(cacheKey, JSON.stringify(p));
-    return p;
-  } catch (e) {
-    return {
-      id: crypto.randomUUID(),
-      addr: line,
-      rawAddr: line,
-      lat: 0,
-      lon: 0,
-      visited: false,
-      logs: [],
-      photos: [],
-      geocodeFailed: true,
-    };
-  }
-});
-
-/** 주소 문자열의 두 번째 컴마 뒤 지역명 추출 (정렬용) */
+/* ───────────── helpers ───────────── */
 function extractRegion(addr: string) {
   const parts = addr.split(",");
   return parts[1]?.trim().toLowerCase() || "";
 }
+function t(s: unknown) {
+  return String(s ?? "").trim().replace(/^"|"$/g, "");
+}
+function n(s: unknown) {
+  const v = Number(String(s ?? "").trim());
+  return Number.isFinite(v) ? v : NaN;
+}
 
+/**
+ * CSV/텍스트 → Place[]
+ * 지원 포맷
+ *  - 헤더 O: address|addr|name, lat, lng|lon
+ *  - 헤더 X:
+ *      1) "address",lat,lng
+ *      2) lat,lon[,name...]
+ *      3) address,lat,lng
+ * 좌표 없으면 geocodeFailed=true
+ */
+function parseTextToPlaces(text: string): Place[] {
+  const parsed = Papa.parse<string[]>(text, { skipEmptyLines: true }).data as string[][];
+  if (!parsed?.length) return [];
+
+  const first = (parsed[0] || []).map((c) => t(c).toLowerCase());
+  const hasHeader =
+    (first.includes("address") || first.includes("addr") || first.includes("name")) &&
+    first.includes("lat") &&
+    (first.includes("lng") || first.includes("lon"));
+
+  const rows = hasHeader ? parsed.slice(1) : parsed;
+  const idx = {
+    name: hasHeader ? first.findIndex((x) => x === "name") : -1,
+    addr: hasHeader ? first.findIndex((x) => x === "addr" || x === "address") : -1,
+    lat: hasHeader ? first.findIndex((x) => x === "lat") : -1,
+    lng: hasHeader ? first.findIndex((x) => x === "lng" || x === "lon") : -1,
+  };
+
+  const out: Place[] = [];
+
+  for (const r of rows) {
+    const cells = (r || []).map((c) => t(c));
+
+    let addr = "";
+    let rawAddr = "";
+    let lat = NaN;
+    let lon = NaN;
+
+    if (hasHeader) {
+      const name = idx.name >= 0 ? cells[idx.name] : "";
+      const addrCell = idx.addr >= 0 ? cells[idx.addr] : name;
+      lat = n(cells[idx.lat]);
+      lon = n(cells[idx.lng]);
+      addr = addrCell || name || "";
+      rawAddr = addr;
+    } else {
+      if (cells.length >= 3) {
+        const a = cells[0], b = cells[1], rest = cells.slice(2).join(", ").trim();
+        const aNum = n(a), bNum = n(b);
+        if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+          // lat,lon[,name...]
+          lat = aNum; lon = bNum;
+          addr = rest || `${lat}, ${lon}`;
+          rawAddr = addr;
+        } else {
+          // "address",lat,lng
+          addr = a; rawAddr = a;
+          lat = n(cells[1]); lon = n(cells[2]);
+        }
+      } else if (cells.length === 1) {
+        // 주소만 — 좌표 없음
+        addr = cells[0]; rawAddr = cells[0];
+        lat = NaN; lon = NaN;
+      } else {
+        continue;
+      }
+    }
+
+    const okLat = Number.isFinite(lat);
+    const okLon = Number.isFinite(lon);
+
+    out.push({
+      id: crypto.randomUUID(),
+      addr,
+      rawAddr,
+      lat: okLat ? lat : 0,
+      lon: okLon ? lon : 0,
+      lng: okLon ? lon : 0,
+      visited: false,
+      logs: [],
+      photos: [],
+      geocodeFailed: !(okLat && okLon),
+    });
+  }
+
+  return out;
+}
+
+function sortPlaces(a: Place, b: Place) {
+  return extractRegion(a.addr).localeCompare(extractRegion(b.addr));
+}
+
+/* ───────────── store ───────────── */
 export const usePlaces = create<Store>()(
   persist(
     (set, get) => ({
@@ -116,69 +166,22 @@ export const usePlaces = create<Store>()(
       setRouteOptions: (options) =>
         set((state) => ({ routeOptions: { ...state.routeOptions, ...options } })),
 
-      /** CSV 혹은 개행 구분 텍스트 로드 */
       async loadCsv(text) {
-        const rows = Papa.parse<string[]>(text, { skipEmptyLines: true }).data;
-        const addrs = rows.map((r) => r.join(",").trim()).filter(Boolean);
-        const newPlaces = await Promise.all(
-          addrs.map(async (line) => {
-            const parts = line.split(",");
-            const n1 = parseFloat(parts[0]);
-            const n2 = parseFloat(parts[1]);
-            if (!isNaN(n1) && !isNaN(n2) && parts.length >= 3) {
-              return {
-                id: crypto.randomUUID(),
-                addr: parts.slice(2).join(",").trim(),
-                rawAddr: parts.slice(2).join(",").trim(),
-                lat: n1,
-                lon: n2,
-                visited: false,
-                logs: [],
-                photos: [],
-              } as Place;
-            }
-            return geocodeAddress(line);
-          })
-        );
-        newPlaces.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
-        set({ places: newPlaces });
+        const next = parseTextToPlaces(text);
+        next.sort(sortPlaces);
+        set({ places: next });
       },
 
-      /** textarea 수동 추가 */
       async addAddresses(text) {
-        const lines = text
-          .split("\n")
-          .map((l) => l.trim().replace(/^"|"$/g, ""))
-          .filter(Boolean);
-        const existing = new Set(get().places.map((p) => p.rawAddr)); // Compare using rawAddr
-        const newLines = lines.filter((l) => !existing.has(l));
-        if (newLines.length === 0) return;
+        const next = parseTextToPlaces(text);
+        if (next.length === 0) return;
 
-        const newPlaces = await Promise.all(
-          newLines.map(async (line) => {
-            if (line.startsWith("geo:")) {
-              const parts = line.replace("geo:", "").split(",");
-              const lat = parseFloat(parts[0]);
-              const lon = parseFloat(parts[1]);
-              const rawAddr = parts.slice(2).join(",").trim();
-              return {
-                id: crypto.randomUUID(),
-                addr: rawAddr,
-                rawAddr,
-                lat,
-                lon,
-                visited: false,
-                logs: [],
-                photos: [],
-              };
-            }
-            const place = await geocodeAddress(line);
-            return { ...place, rawAddr: line };
-          })
-        );
+        const key = (p: Place) => `${p.addr}|${p.lat}|${p.lon}`;
+        const existing = new Set(get().places.map(key));
+        const dedup = next.filter((p) => !existing.has(key(p)));
+        if (dedup.length === 0) return;
 
-        const all = [...get().places, ...newPlaces];
-        all.sort((a, b) => extractRegion(a.addr).localeCompare(extractRegion(b.addr)));
+        const all = [...get().places, ...dedup].sort(sortPlaces);
         set({ places: all });
       },
 
@@ -194,7 +197,6 @@ export const usePlaces = create<Store>()(
       clearStops: () => set({ places: get().places.map((p) => ({ ...p, visited: false })) }),
       reorderPlaces: (newOrder) => set({ places: newOrder }),
 
-      // ---- Route 관리 ----
       addToRoute: (id) => set((s) => ({ routePlaces: [...s.routePlaces, id] })),
       removeFromRoute: (id) => set((s) => ({ routePlaces: s.routePlaces.filter((pid) => pid !== id) })),
       reorderRoute: (newOrder) => set(() => ({ routePlaces: newOrder })),
@@ -204,13 +206,13 @@ export const usePlaces = create<Store>()(
         set((state) => ({
           places: state.places.map((p) => (p.id === updated.id ? updated : p)),
         })),
-        
 
-      /** ORS Optimization (TSP) */
+      // ORS 최적화(기존 그대로 유지)
       async optimizeWithORS(start) {
-        const routeList = get().routePlaces.map((id) =>
-          get().places.find((p) => p.id === id)
-        ).filter((p): p is Place => !!p);
+        const routeList = get()
+          .routePlaces
+          .map((id) => get().places.find((p) => p.id === id))
+          .filter((p): p is Place => !!p);
 
         const body = {
           jobs: routeList.map((p, i) => ({ id: i + 1, location: [p.lon, p.lat] })),
@@ -233,19 +235,28 @@ export const usePlaces = create<Store>()(
         }
       },
     }),
-    { name: "grassgps" }
-  )
+    {
+      name: "grassgps",
+      // persist 복구가 끝난 뒤 places가 비어있으면 CSV 자동 로드
+      onRehydrateStorage: () => () => {
+        setTimeout(async () => {
+          try {
+            if (usePlaces.getState().places.length === 0) {
+              const res = await fetch("/addresses.csv");
+              if (!res.ok) return;
+              const text = await res.text();
+              await usePlaces.getState().loadCsv(text);
+            }
+          } catch (e) {
+            console.warn("CSV auto-load after hydration failed:", e);
+          }
+        }, 0);
+      },
+    }
+  ) 
 );
 
-/** 앱 시작 시 public/addresses.csv 자동 로드 */
-// (async () => {
-//   try {
-//     const res = await fetch("/addresses.csv");
-//     if (res.ok) {
-//       const text = await res.text();
-//       await usePlaces.getState().loadCsv(text);
-//     }
-//   } catch (e) {
-//     console.warn("초기 CSV 로드 실패:", e);
-//   }
-// })();
+if (import.meta.env.DEV) {
+  (window as any).__places = usePlaces;
+  console.log("[usePlaces] probe ready. places =", usePlaces.getState().places.length);
+}

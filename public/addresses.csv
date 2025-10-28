@@ -1,3 +1,4 @@
+address,lat,lng
 "319 Keary St, New Westminster, BC V3L 3L2",49.2258949,-122.8940086
 "1307-1309 Sixth Ave, New Westminster, V3M 2C3",49.2140043,-122.9187576
 "1055 Duthie Ave, Burnaby,BC V5A 2R3",49.2664713,-122.9533751
@@ -13,28 +14,28 @@
 "3567 Vaness Ave, Vancouver, BC V5R 5B5",49.2367985,-123.0273039
 "2356 E Georgia St, Vancouver, BC V5L 2C2",49.2782631,-123.0375703
 "2724 Graveley St, Vancouver, BC V5K 3J8",49.2705271,-123.0337481
-"3597 Gladstone St, Vancouver, BC V5N 4Y8",49.2504618,-123.0604641
+"3597 Gladstone St, Vancouver, BC V5N 4Y8",49.235627,-123.062335
 "3024 E 22nd Ave, Vancouver, BC V5M 2Y6",49.2503125,-123.0409015
 "3402 Worthington Dr, Vancouver, BC V5M 3X2",49.2556224,-123.0324099
 "5425 Gladstone St, Vancouver, BC V5P 4C7",49.2256905,-123.0623291
 "7342 Sherbrooke St, Vancouver, BC V5X 4E4",49.218885,-123.0815884
-"463 East 51st Avenue, Vancouver, BC V5X 1C8",49.2231949,-123.0458143
-"5794 Chester Street, Vancouver, BC V5W 3B5",49.238416,-123.0892029
+"463 East 51st Avenue, Vancouver, BC V5X 1C8",49.223931,-123.09576
+"5794 Chester Street, Vancouver, BC V5W 3B5",49.232029,-123.088827
 "555 West 22nd Avenue, Vancouver, BC V5Z 1Z3",49.2515183,-123.116499
 "2166 West 15th Ave, Vancouver, BC V6K 2Y5",49.2580164,-123.1546053
-"2702 Rosemont Dr, Vancouver, BC V5S 2C5",49.2165285,-123.045316
-"287 E 33rd Ave, Vancouver, BC V5V 2Z7",49.2403082,-123.0903851
+"2702 Rosemont Dr, Vancouver, BC V5S 2C5",49.219447,-123.049658
+"287 E 33rd Ave, Vancouver, BC V5V 2Z7",49.240707,-123.099335
 "2749 Wyat Pl, North Vancouver, BC BC V7H 1K5",49.3209994,-122.9985389
 "1220 East 14th street, North Vancouver, BC V5T 2P3",49.3209262,-123.0625413
 "3895 Phyllis Road, North Vancouver, BC V7K 2T7",49.3442469,-123.0233425
-"10220 Granville Ave, Richmond, V6Y 1R4",49.162789,-123.137702
+"10220 Granville Ave, Richmond, V6Y 1R4",49.162531,-123.108863
 "7540 Acheson Rd, Richmond, V6Y 1M9",49.1601766,-123.1367252
-"10120 Number 1 Rd, Richmond, V7E 1S2",49.1516097,-123.1812386
+"10120 Number 1 Rd, Richmond, V7E 1S2",49.139917,-123.180914
 "10984 Springmont Gate, Richmond, V7E 1Y4",49.1349326,-123.191659
 "10420 Milford Dr, Richmond, BC V7A 4J7",49.1390773,-123.1151676
 "10731 Number 5 Rd, Richmond, V7A 4E6",49.1288454,-123.09208
 "6151 Taseko Crescent, Richmond, V7C 2N4",49.1680929,-123.1569802
-"4851 Francis Road, Richmond, V7C 4R5",49.1479984,-123.1137
+"4851 Francis Road, Richmond, V7C 4R5",49.148666,-123.170512
 "2380 No. 4 Road, Richmond BC V6X 2L5",49.1969956,-123.1139013
 "1796 W 15th , Vancouver, BC",49.2578926,-123.145762
 "11171 2nd Ave, Richmond V7E 3K6",49.132558,-123.184576

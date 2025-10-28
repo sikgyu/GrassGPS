@@ -1,6 +1,5 @@
-// src/components/Sidebar.tsx – with English buttons, address count & region filter
-
-import { useState, useCallback, useMemo, ReactNode } from "react";
+// src/components/Sidebar.tsx
+import { useState, useCallback, useMemo, useRef, ReactNode } from "react";
 import {
   DragDropContext,
   Droppable,
@@ -26,14 +25,14 @@ interface Props {
   open: boolean;
   optimizeTrigger: boolean;
   setOptimizeTrigger: React.Dispatch<React.SetStateAction<boolean>>;
-  routeInfo: RouteInfo;
+  routeInfo?: RouteInfo; // 옵션: 안 넘겨도 렌더 안전
 }
 
 /* ───────────────────────────── utils & constants ─────────────────────────── */
 const CITY_WHITELIST = [
   "All",
   "Vancouver",
-  "North Vancouver",      
+  "North Vancouver",
   "Burnaby",
   "New Westminster",
   "Coquitlam",
@@ -51,7 +50,7 @@ function cityOf(addr: string) {
   const tok = addr
     .split(",")
     .map((t) => t.trim())
-    .map((t) => CITY_ALIASES[t] ?? t) // ⭐ 매핑된 값으로 교체
+    .map((t) => CITY_ALIASES[t] ?? t)
     .find((t) =>
       CITY_WHITELIST.some((c) => c.toLowerCase() === t.toLowerCase())
     );
@@ -59,16 +58,23 @@ function cityOf(addr: string) {
 }
 
 function shortAddr(addr: string) {
-  // “Metro Vancouver Regional District” 이후는 잘라 버림
   const cut = addr.split(/,\s*Metro Vancouver/i)[0];
   return cut;
 }
 
-// region 은 곧 ‘큰 도시’
 function regionOf(addr: string) {
-  return cityOf(addr);                           // ⭐
+  return cityOf(addr);
 }
 
+function hasCoords(p: any) {
+  const lon = (p as any).lon ?? (p as any).lng;
+  return (
+    Number.isFinite(p.lat) &&
+    Number.isFinite(lon) &&
+    (p.lat !== 0 || lon !== 0) &&
+    !(p as any).geocodeFailed
+  );
+}
 
 /* ───────────────────────────────────────────────────────────── */
 export function Sidebar({
@@ -88,6 +94,7 @@ export function Sidebar({
 
   const pos = useGeo();
   const [tab, setTab] = useState<Tab>("places");
+  const __hmrGuard = useRef(0);
 
   /* ───── Drag & Drop ───── */
   const onDragEnd = useCallback(
@@ -111,7 +118,9 @@ export function Sidebar({
   /* ───── Region filter state ───── */
   const allRegions = useMemo(() => {
     const s = new Set<string>();
-    places.forEach((p) => s.add(regionOf(p.addr))); // ⭐ ‘큰 도시’ 기준
+    places.forEach((p) =>
+      s.add(regionOf((p as any).addr ?? (p as any).address ?? ""))
+    );
     return Array.from(s).sort();
   }, [places]);
 
@@ -126,9 +135,14 @@ export function Sidebar({
 
   /* ───── Filtered lists ───── */
   const filteredPlaces = useMemo(() => {
-    const base = places.filter((p) => p.id && !p.geocodeFailed);
+    // 좌표 없어도 목록은 보여준다(지금 CSV 로드만 목표)
+    const base = places.filter((p) => p.id);
     if (selectedRegions.length === 0) return base;
-    return base.filter((p) => selectedRegions.includes(regionOf(p.addr)));
+    return base.filter((p) =>
+      selectedRegions.includes(
+        regionOf((p as any).addr ?? (p as any).address ?? "")
+      )
+    );
   }, [places, selectedRegions]);
 
   const routeList = useMemo(
@@ -142,8 +156,9 @@ export function Sidebar({
   /* ───── Select / Deselect buttons ───── */
   const selectAll = () =>
     filteredPlaces
-      .filter((p) => !routePlaces.includes(p.id))
+      .filter((p) => hasCoords(p) && !routePlaces.includes(p.id))
       .forEach((p) => addToRoute(p.id));
+
   const deselectAll = () => routePlaces.forEach((id) => removeFromRoute(id));
 
   /* ───── Local TSP (unchanged) ───── */
@@ -153,9 +168,11 @@ export function Sidebar({
     const home: Place = {
       id: "__HOME__",
       addr: "Home",
+      rawAddr: "Home",
       lat: homeLat,
       lon: homeLon,
       visited: false,
+      logs: [],
       photos: [],
     };
     let unvisited = [...routeList];
@@ -169,9 +186,13 @@ export function Sidebar({
         for (let j = 0; j < tour.length - 1; j++) {
           const A = tour[j],
             B = tour[j + 1];
-          const costAB = haversine(A.lat, A.lon, B.lat, B.lon);
-          const costAP = haversine(A.lat, A.lon, p.lat, p.lon);
-          const costPB = haversine(p.lat, p.lon, B.lat, B.lon);
+          const Alon = (A as any).lon ?? (A as any).lng;
+          const Blon = (B as any).lon ?? (B as any).lng;
+          const Plon = (p as any).lon ?? (p as any).lng;
+
+          const costAB = haversine(A.lat, Alon, B.lat, Blon);
+          const costAP = haversine(A.lat, Alon, p.lat, Plon);
+          const costPB = haversine(p.lat, Plon, B.lat, Blon);
           const inc = costAP + costPB - costAB;
           if (inc < bestInc) {
             bestInc = inc;
@@ -217,7 +238,10 @@ export function Sidebar({
                     <div className="flex gap-2">
                       <button
                         onClick={selectAll}
-                        disabled={filteredPlaces.length === routePlaces.length}
+                        disabled={
+                          filteredPlaces.filter((p) => hasCoords(p)).length ===
+                          routePlaces.length
+                        }
                         className="flex-1 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm"
                       >
                         Select All
@@ -239,11 +263,14 @@ export function Sidebar({
                         {selectedRegions.length === 0
                           ? "All regions"
                           : `${selectedRegions.length} selected`}
-                        {openDropdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        {openDropdown ? (
+                          <ChevronUp size={16} />
+                        ) : (
+                          <ChevronDown size={16} />
+                        )}
                       </button>
                       {openDropdown && (
                         <div className="absolute z-10 mt-1 w-full bg-white border rounded shadow">
-                          
                           {/* All regions option */}
                           <label
                             className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer font-semibold"
@@ -326,21 +353,28 @@ export function Sidebar({
                     </button>
                   </div>
 
-                  <div className="bg-white p-4 mb-4 rounded shadow text-sm">
-                    <div>
-                      <b>Summary:</b> {routeInfo.summary}
+                  {/* 요약 박스: routeInfo 있으면만 표시 */}
+                  {routeInfo && (
+                    <div className="bg-white p-4 mb-4 rounded shadow text-sm">
+                      <div>
+                        <b>Summary:</b> {routeInfo.summary}
+                      </div>
+                      <div>
+                        <b>Total distance:</b> {routeInfo.distance}
+                      </div>
+                      <div>
+                        <b>Duration:</b> {routeInfo.duration}
+                      </div>
                     </div>
-                    <div>
-                      <b>Total distance:</b> {routeInfo.distance}
-                    </div>
-                    <div>
-                      <b>Duration:</b> {routeInfo.duration}
-                    </div>
-                  </div>
+                  )}
 
                   <Droppable droppableId="route" type="route">
                     {(prov) => (
-                      <div ref={prov.innerRef} {...prov.droppableProps} className="space-y-2">
+                      <div
+                        ref={prov.innerRef}
+                        {...prov.droppableProps}
+                        className="space-y-2"
+                      >
                         {routeList.map((pl, i) => (
                           <Draggable key={pl.id} draggableId={pl.id} index={i}>
                             {(drag, snap) => (
@@ -369,40 +403,92 @@ export function Sidebar({
   );
 }
 
-/* ───── Sub‑components ───── */
-function TabBtn({ act, me, setAct, children }: { act: Tab; me: Tab; setAct: (t: Tab) => void; children: ReactNode }) {
+/* ───── Sub-components ───── */
+function TabBtn({
+  act,
+  me,
+  setAct,
+  children,
+}: {
+  act: Tab;
+  me: Tab;
+  setAct: (t: Tab) => void;
+  children: ReactNode;
+}) {
   const active = act === me;
   return (
     <button
       onClick={() => setAct(me)}
-      className={`flex-1 py-2 font-medium ${active ? "border-b-2 border-blue-500 text-blue-600" : "text-gray-500 hover:text-gray-700"}`}
+      className={`flex-1 py-2 font-medium ${
+        active
+          ? "border-b-2 border-blue-500 text-blue-600"
+          : "text-gray-500 hover:text-gray-700"
+      }`}
     >
       {children}
     </button>
   );
 }
 
-function Card({ d, s, i, place, inRoute, onAdd, onRemove }: { d: any; s: any; i: number; place: Place; inRoute: boolean; onAdd?: () => void; onRemove: () => void }) {
+function Card({
+  d,
+  s,
+  i,
+  place,
+  inRoute,
+  onAdd,
+  onRemove,
+}: {
+  d: any;
+  s: any;
+  i: number;
+  place: Place;
+  inRoute: boolean;
+  onAdd?: () => void;
+  onRemove: () => void;
+}) {
+  const noGeo = !hasCoords(place);
+
   return (
     <div
       ref={d.innerRef}
       {...d.draggableProps}
       style={d.draggableProps.style}
-      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${s.isDragging ? "shadow-lg ring-2 ring-blue-500" : ""}`}
+      className={`bg-white rounded shadow p-2 flex items-center gap-2 ${
+        s.isDragging ? "shadow-lg ring-2 ring-blue-500" : ""
+      }`}
     >
-      <div {...d.dragHandleProps} className={`flex-1 flex items-center gap-2 ${s.isDragging ? "cursor-grabbing" : "cursor-grab"}`}>
+      <div
+        {...d.dragHandleProps}
+        className={`flex-1 flex items-center gap-2 ${
+          s.isDragging ? "cursor-grabbing" : "cursor-grab"
+        }`}
+      >
         <span className="w-6 text-gray-500">{i + 1}.</span>
-        <span className="flex-1 text-sm whitespace-normal break-words">{shortAddr(place.addr)}</span>
+        <span className="flex-1 text-sm whitespace-normal break-words">
+          {shortAddr((place as any).addr ?? (place as any).address ?? "")}
+        </span>
+        {noGeo && (
+          <span className="text-xs text-gray-400 select-none">· no coords</span>
+        )}
       </div>
 
       {inRoute ? (
         <span className="text-green-500 font-bold px-2">✓</span>
       ) : (
-        <button onClick={onAdd} className="text-gray-400 hover:text-green-500 px-2">
+        <button
+          onClick={onAdd}
+          className="text-gray-400 hover:text-green-500 px-2 disabled:opacity-40"
+          disabled={noGeo}
+          title={noGeo ? "No coordinates" : ""}
+        >
           +
         </button>
       )}
-      <button onClick={onRemove} className="text-gray-400 hover:text-red-500 px-2">
+      <button
+        onClick={onRemove}
+        className="text-gray-400 hover:text-red-500 px-2"
+      >
         ×
       </button>
     </div>
